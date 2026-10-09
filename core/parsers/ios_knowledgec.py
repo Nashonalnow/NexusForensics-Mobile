@@ -114,6 +114,9 @@ class IOSKnowledgeCParser(BaseArtifactParser):
 
                 artifact = ArtifactModel(
                     source_id=source_id,
+                    parser_id=self.parser_id,
+                    source_table="ZOBJECT",
+                    source_record_id=str(raw_dict.get("Z_PK", "")),
                     artifact_type=self.artifact_type,
                     parser_name=self.parser_name,
                     parser_version=self.parser_version,
@@ -127,6 +130,7 @@ class IOSKnowledgeCParser(BaseArtifactParser):
                         "start_time": ts_str
                     }
                 )
+
 
                 event = EventModel(
                     artifact_id=artifact.artifact_id,

@@ -67,6 +67,9 @@ class NexusProxyBundleParser(BaseArtifactParser):
 
                 artifact = ArtifactModel(
                     source_id=source_id,
+                    parser_id=self.parser_id,
+                    source_table="requests",
+                    source_record_id=str(idx),
                     artifact_type=self.artifact_type,
                     parser_name=self.parser_name,
                     parser_version=self.parser_version,
@@ -80,6 +83,7 @@ class NexusProxyBundleParser(BaseArtifactParser):
                         "protocol": "HTTP/1.1"
                     }
                 )
+
 
                 event = EventModel(
                     artifact_id=artifact.artifact_id,

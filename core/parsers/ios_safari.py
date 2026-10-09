@@ -67,6 +67,9 @@ class IOSSafariHistoryParser(BaseArtifactParser):
 
                 artifact = ArtifactModel(
                     source_id=source_id,
+                    parser_id=self.parser_id,
+                    source_table="history_items",
+                    source_record_id=str(raw_dict.get("id", "")),
                     artifact_type=self.artifact_type,
                     parser_name=self.parser_name,
                     parser_version=self.parser_version,
@@ -78,6 +81,7 @@ class IOSSafariHistoryParser(BaseArtifactParser):
                         "title": title
                     }
                 )
+
 
                 event = EventModel(
                     artifact_id=artifact.artifact_id,

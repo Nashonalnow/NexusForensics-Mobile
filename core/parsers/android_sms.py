@@ -69,6 +69,9 @@ class AndroidSMSParser(BaseArtifactParser):
 
                     artifact = ArtifactModel(
                         source_id=source_id,
+                        parser_id=self.parser_id,
+                        source_table="sms",
+                        source_record_id=str(raw_dict.get("_id", "")),
                         artifact_type=self.artifact_type,
                         parser_name=self.parser_name,
                         parser_version=self.parser_version,
@@ -82,6 +85,7 @@ class AndroidSMSParser(BaseArtifactParser):
                             "read": bool(raw_dict.get("read", 1))
                         }
                     )
+
 
                     event = EventModel(
                         artifact_id=artifact.artifact_id,

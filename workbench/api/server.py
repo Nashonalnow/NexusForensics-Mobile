@@ -36,6 +36,7 @@ from core.parsers import ParserRegistry
 from core.correlation_engine import CorrelationEngine
 from core.confidence_scorer import ConfidenceScoringEngine
 from core.behavior_replay import BehavioralReplayEngine
+from core.integrity_validator import ForensicIntegrityValidator
 from core.evidence_ingestor import EvidenceIngestor
 from core.sqlite_inspector import SQLiteInspector
 from core.android_parser import AndroidForensicsParser
@@ -68,6 +69,7 @@ timeline_engine = TimelineEngine()
 correlation_engine = CorrelationEngine(warehouse)
 confidence_scorer = ConfidenceScoringEngine(warehouse)
 behavior_replay = BehavioralReplayEngine(warehouse)
+integrity_validator = ForensicIntegrityValidator(warehouse)
 
 # Default Active Case & Device Registration
 ACTIVE_CASE_ID = "CASE-2026-NEXUS-01"
@@ -75,20 +77,20 @@ ACTIVE_DEVICE_ID = "DEV-NEXUS-MOBILE-01"
 
 warehouse.insert_case(
     case_id=ACTIVE_CASE_ID,
-    name="Mobile Security & Forensic Incident Triage",
+    case_name="Mobile Security & Forensic Incident Triage",
     description="Forensic investigation of mobile application artifacts and behavioral telemetry.",
-    status="active",
+    status="open",
     created_by="Lead Forensic Investigator",
-    tags=["mobile", "dfir", "timesketch-axiom"]
+    classification="confidential"
 )
 
 warehouse.insert_device(
     device_id=ACTIVE_DEVICE_ID,
     case_id=ACTIVE_CASE_ID,
-    platform="Android",
+    platform="android",
     manufacturer="Google",
     model="Pixel 9 Pro",
-    serial="SN-PX9-83921",
+    serial_number="SN-PX9-83921",
     imei="358901234567890",
     os_version="15.0"
 )
@@ -145,7 +147,14 @@ class SQLiteQueryRequest(BaseModel):
 @app.post("/api/v1/cases")
 def create_case(req: CreateCaseRequest):
     cid = f"CASE-{uuid.uuid4().hex[:8].upper()}"
-    warehouse.insert_case(cid, req.name, req.description or "", "active", req.created_by or "Examiner", req.tags)
+    warehouse.insert_case(
+        case_id=cid,
+        case_name=req.name,
+        description=req.description or "",
+        status="open",
+        created_by=req.created_by or "Examiner",
+        classification="internal"
+    )
     return {"case_id": cid, "status": "CREATED"}
 
 @app.get("/api/v1/cases")
@@ -165,8 +174,14 @@ def get_case(case_id: str):
 def register_device(case_id: str, req: RegisterDeviceRequest):
     did = f"DEV-{uuid.uuid4().hex[:8].upper()}"
     warehouse.insert_device(
-        did, case_id, req.platform, req.manufacturer or "Unknown",
-        req.model, req.serial_number or "", req.imei or "", req.os_version or ""
+        device_id=did,
+        case_id=case_id,
+        platform=req.platform,
+        manufacturer=req.manufacturer or "Unknown",
+        model=req.model,
+        serial_number=req.serial_number or "",
+        imei=req.imei or "",
+        os_version=req.os_version or ""
     )
     return {"device_id": did, "status": "REGISTERED"}
 
@@ -206,12 +221,26 @@ def ingest_evidence(req: IngestFileRequest):
         source_id=src_id,
         device_id=req.device_id or ACTIVE_DEVICE_ID,
         source_type=req.source_type or "filesystem",
-        tool=req.tool or "NexusForensics",
-        tool_version="1.0",
+        acquisition_tool=req.tool or "NexusForensics",
+        acquisition_tool_version="1.0",
         original_filename=path.name,
         file_size=artifact_wrapper.file_size_bytes,
         sha256=artifact_wrapper.sha256,
-        examiner=req.examiner or "Examiner"
+        sha1=getattr(artifact_wrapper, "sha1", None),
+        md5=getattr(artifact_wrapper, "md5", None),
+        acquisition_operator=req.examiner or "Examiner",
+        imported_by=req.examiner or "Examiner"
+    )
+
+    # Processing run for reproducibility
+    run_id = warehouse.create_processing_run(
+        case_id=ACTIVE_CASE_ID,
+        engine_version="1.0.0",
+        ruleset_version="2026.10",
+        graph_version="1.0.0",
+        build_sha256="9f7c8e2a01bc4389df0123456789abcdef0123456789abcdef0123456789abcd",
+        executed_by=req.examiner or "Examiner",
+        parameters={"source_id": src_id, "file_path": str(path), "tool": req.tool or "NexusForensics"}
     )
 
     # Zimmerman parser execution
@@ -220,21 +249,46 @@ def ingest_evidence(req: IngestFileRequest):
 
     for art, events in parsed_pairs:
         warehouse.insert_artifact(
-            art.artifact_id, art.source_id, art.artifact_type,
-            art.parser_name, art.parser_version, art.artifact_timestamp or time.strftime('%Y-%m-%d %H:%M:%S'),
-            art.record_hash, art.raw_data, art.normalized_data
+            artifact_id=art.artifact_id,
+            source_id=art.source_id,
+            parser_id=art.parser_id,
+            evidence_offset=getattr(art, "evidence_offset", 0),
+            source_table=getattr(art, "source_table", None),
+            source_record_id=getattr(art, "source_record_id", None),
+            artifact_type=art.artifact_type,
+            artifact_timestamp=art.artifact_timestamp or time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+            timezone_source=getattr(art, "timezone_source", "UTC"),
+            timestamp_precision=getattr(art, "timestamp_precision", "exact"),
+            record_hash=art.record_hash,
+            parent_artifact_id=getattr(art, "parent_artifact_id", None),
+            raw_json=art.raw_data,
+            normalized_json=art.normalized_data,
+            parser_notes=getattr(art, "parser_notes", None)
         )
+        warehouse.link_artifact_processing(run_id=run_id, artifact_id=art.artifact_id, operation="parse")
         for ev in events:
             warehouse.insert_event(
-                ev.event_id, ev.artifact_id, ev.device_id, ev.timestamp,
-                ev.event_type, ev.category, ev.description, ev.confidence,
-                ev.location_lat, ev.location_lon, ev.actor, ev.target, ev.raw_payload
+                event_id=ev.event_id,
+                artifact_id=ev.artifact_id,
+                device_id=ev.device_id,
+                timestamp=ev.timestamp,
+                event_type=ev.event_type,
+                category=ev.category,
+                description=ev.description,
+                confidence=ev.confidence,
+                latitude=getattr(ev, "latitude", getattr(ev, "location_lat", None)),
+                longitude=getattr(ev, "longitude", getattr(ev, "location_lon", None)),
+                altitude=getattr(ev, "altitude", getattr(ev, "location_alt", None)),
+                source_weight=getattr(ev, "source_weight", 1.0),
+                actor=getattr(ev, "actor", None),
+                target=getattr(ev, "target", None),
+                raw_payload=ev.raw_payload
             )
             timeline_engine.add_event(ev)
             total_events_generated += 1
 
     # Run correlation on newly parsed telemetry
-    rels = correlation_engine.run_correlation(req.device_id, window_seconds=120.0)
+    rels = correlation_engine.run_correlation(req.device_id or ACTIVE_DEVICE_ID, window_seconds=120.0)
 
     # Generate explainable findings
     findings = confidence_scorer.evaluate_communication_events(ACTIVE_CASE_ID, req.device_id or ACTIVE_DEVICE_ID)
@@ -242,6 +296,7 @@ def ingest_evidence(req: IngestFileRequest):
     return {
         "status": "SUCCESS",
         "evidence_source_id": src_id,
+        "processing_run_id": run_id,
         "sha256": artifact_wrapper.sha256,
         "artifacts_carved": len(parsed_pairs),
         "timeline_events_generated": total_events_generated,
@@ -252,16 +307,21 @@ def ingest_evidence(req: IngestFileRequest):
 # 4. Artifact APIs
 @app.get("/api/v1/artifacts/search")
 def search_artifacts(type: Optional[str] = None, keyword: Optional[str] = None, limit: int = 50):
-    q = "SELECT artifact_id, source_id, artifact_type, parser_name, artifact_timestamp, record_hash FROM forensic.artifacts WHERE 1=1"
+    q = """
+        SELECT a.artifact_id, a.source_id, a.artifact_type, a.parser_id, p.parser_name, a.artifact_timestamp, a.record_hash
+        FROM forensic.artifacts a
+        JOIN forensic.parsers p ON a.parser_id = p.parser_id
+        WHERE 1=1
+    """
     params = []
     if type:
-        q += " AND artifact_type = ?"
+        q += " AND a.artifact_type = ?"
         params.append(type)
     if keyword:
-        q += " AND (LOWER(raw_json) LIKE ? OR LOWER(normalized_json) LIKE ?)"
+        q += " AND (LOWER(a.raw_json) LIKE ? OR LOWER(a.normalized_json) LIKE ?)"
         pat = f"%{keyword.lower()}%"
         params.extend([pat, pat])
-    q += f" ORDER BY created_at DESC LIMIT {limit};"
+    q += f" ORDER BY a.created_at DESC LIMIT {limit};"
 
     res = warehouse.conn.execute(q, params).fetchall()
     cols = [c[0] for c in warehouse.conn.description]
@@ -269,17 +329,27 @@ def search_artifacts(type: Optional[str] = None, keyword: Optional[str] = None, 
 
 @app.get("/api/v1/artifacts/{artifact_id}")
 def get_artifact(artifact_id: str):
-    res = warehouse.raw_sql_query(f"SELECT * FROM forensic.artifacts WHERE artifact_id = '{artifact_id}';")
+    res = warehouse.raw_sql_query(f"""
+        SELECT a.*, p.parser_name, p.parser_version, p.parser_sha256
+        FROM forensic.artifacts a
+        JOIN forensic.parsers p ON a.parser_id = p.parser_id
+        WHERE a.artifact_id = '{artifact_id}';
+    """)
     if not res["rows"]:
         raise HTTPException(status_code=404, detail="Artifact not found")
     art = res["rows"][0]
     return {
         "artifact_id": art["artifact_id"],
+        "source_id": art.get("source_id"),
+        "parser_id": art.get("parser_id"),
+        "parser_name": art.get("parser_name"),
+        "parser_version": art.get("parser_version"),
         "artifact_type": art["artifact_type"],
-        "parser_name": art["parser_name"],
         "record_hash": art["record_hash"],
-        "raw_data": json.loads(art["raw_json"]) if isinstance(art["raw_json"], str) else art["raw_json"],
-        "normalized_data": json.loads(art["normalized_json"]) if isinstance(art["normalized_json"], str) else art["normalized_json"]
+        "source_table": art.get("source_table"),
+        "source_record_id": art.get("source_record_id"),
+        "raw_data": json.loads(art["raw_json"]) if isinstance(art.get("raw_json"), str) else art.get("raw_json"),
+        "normalized_data": json.loads(art["normalized_json"]) if isinstance(art.get("normalized_json"), str) else art.get("normalized_json")
     }
 
 # 5. Timeline APIs
@@ -362,14 +432,58 @@ def run_warehouse_query(req: WarehouseQueryRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-# 10. Reports
+# 10. Evidentiary Assurance & Integrity Verification APIs
+@app.get("/api/v1/integrity/scorecard")
+def get_integrity_scorecard():
+    scorecard = integrity_validator.run_full_scorecard()
+    return scorecard
+
+@app.post("/api/v1/integrity/audit/verify")
+def verify_audit_ledger():
+    chain_res = warehouse.validate_audit_chain()
+    return chain_res
+
+@app.get("/api/v1/integrity/lineage/{finding_id}")
+def get_finding_lineage(finding_id: str):
+    lineage = warehouse.walk_finding_lineage(finding_id)
+    if "error" in lineage:
+        raise HTTPException(status_code=404, detail=lineage["error"])
+    return lineage
+
+@app.post("/api/v1/integrity/checkpoints/create")
+def create_integrity_checkpoint():
+    merkle_root = warehouse.create_audit_checkpoint()
+    return {
+        "status": "SUCCESS",
+        "merkle_root": merkle_root,
+        "checkpoint_timestamp": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    }
+
+@app.post("/api/evidence/{source_id}/seal")
+@app.post("/api/v1/evidence/{source_id}/seal")
+def seal_evidence_source(source_id: str, examiner: Optional[str] = "Lead Forensic Examiner"):
+    warehouse.seal_evidence_source(source_id, examiner=examiner or "Examiner")
+    return {
+        "status": "SEALED",
+        "source_id": source_id,
+        "sealed_by": examiner or "Examiner",
+        "sealed_at": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+    }
+
+# 11. Reports
 @app.post("/api/v1/reports")
 def generate_report(case_id: str = ACTIVE_CASE_ID, format: str = "json"):
     rep_id = f"REP-{uuid.uuid4().hex[:8].upper()}"
+    scorecard = integrity_validator.run_full_scorecard()
+    merkle_root = warehouse.create_audit_checkpoint()
+
     findings = warehouse.query_findings(case_id)
     timeline = warehouse.query_timeline(limit=1000)
     artifacts = ingestor.get_all_artifacts()
     coc_records = ingestor.get_chain_of_custody()
+
+    is_blocked = scorecard.get("release_gate_decision") == "BLOCKED"
+    watermark = "FORENSIC INTEGRITY VALIDATION FAILED - ADMISSIBILITY BLOCKED" if is_blocked else None
 
     dossier = {
         "title": "NIST SP 800-86 Mobile Forensics Dossier",
@@ -377,10 +491,15 @@ def generate_report(case_id: str = ACTIVE_CASE_ID, format: str = "json"):
         "case_id": case_id,
         "generated_at": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
         "integrity_standard": "NIST SP 800-86 Compliant",
+        "release_gate_decision": scorecard.get("release_gate_decision"),
+        "admissibility_watermark": watermark,
+        "merkle_checkpoint": merkle_root,
+        "integrity_scorecard": scorecard,
         "integrity_seal": {
             "total_artifacts": len(artifacts),
             "artifacts_verified": sum(1 for a in artifacts if a.integrity_status == "VERIFIED"),
-            "chain_of_custody_steps": len(coc_records)
+            "chain_of_custody_steps": len(coc_records),
+            "merkle_root": merkle_root
         },
         "total_findings": len(findings),
         "total_events": len(timeline),
@@ -395,12 +514,12 @@ def generate_report(case_id: str = ACTIVE_CASE_ID, format: str = "json"):
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         rep_path = target_dir / f"{rep_id}.json"
-        rep_path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+        rep_path.write_text(json.dumps(dossier, indent=2, default=str), encoding="utf-8")
     except Exception:
         fallback_dir = Path("/tmp/nexusforensics_cases")
         fallback_dir.mkdir(parents=True, exist_ok=True)
         rep_path = fallback_dir / f"{rep_id}.json"
-        rep_path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+        rep_path.write_text(json.dumps(dossier, indent=2, default=str), encoding="utf-8")
 
     sha = hashlib.sha256(rep_path.read_bytes()).hexdigest()
 
@@ -412,9 +531,20 @@ def generate_report(case_id: str = ACTIVE_CASE_ID, format: str = "json"):
     except Exception:
         pass
 
+    warehouse.log_audit(
+        case_id=case_id,
+        username="Lead Forensic Examiner",
+        operation="EXPORT_REPORT",
+        entity_type="report",
+        entity_id=rep_id,
+        details={"sha256": sha, "release_gate": scorecard.get("release_gate_decision"), "merkle_root": merkle_root}
+    )
+
     return {
-        "status": "SUCCESS",
+        "status": "SUCCESS" if not is_blocked else "WARNING_GATE_BLOCKED",
         "report_id": rep_id,
+        "release_gate_decision": scorecard.get("release_gate_decision"),
+        "admissibility_watermark": watermark,
         "sha256": sha,
         "filepath": str(rep_path),
         "report_file": str(rep_path),

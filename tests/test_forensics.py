@@ -266,6 +266,139 @@ def test_zimmerman_parsers():
 
         print("✓ Zimmerman-style forensic parsers validated!")
 
+def test_forensic_integrity_scorecard():
+    client = TestClient(app)
+    res = client.get("/api/v1/integrity/scorecard")
+    assert res.status_code == 200
+    card = res.json()
+    assert card["overall_integrity_score"] == "100/100"
+    assert card["release_gate_decision"] == "PASS"
+    assert card["critical_violations"] == 0
+    assert card["high_violations"] == 0
+    assert card["controls_passed"] == card["controls_total"]
+    assert card["evidence_integrity"] == "PASS"
+    assert card["parser_provenance"] == "PASS"
+    assert card["artifact_lineage"] == "PASS"
+    assert card["event_provenance"] == "PASS"
+    assert card["chain_of_custody"] == "PASS"
+    assert card["audit_hash_chain"] == "PASS"
+    print("✓ Full 21-Control Forensic Integrity Scorecard validated (100/100 PASS)!")
+
+def test_forward_linked_audit_chain_and_tamper_detection():
+    client = TestClient(app)
+    # 1. Normal verification
+    res = client.post("/api/v1/integrity/audit/verify")
+    assert res.status_code == 200
+    report = res.json()
+    assert report["status"] == "PASS"
+    assert report["hash_mismatches"] == 0
+    assert report["chain_breaks"] == 0
+    assert report["duplicates"] == 0
+
+    # 2. Merkle Root Checkpoint
+    chk_res = client.post("/api/v1/integrity/checkpoints/create")
+    assert chk_res.status_code == 200
+    assert len(chk_res.json()["merkle_root"]) == 64
+
+    # 3. Tamper Injection & Detection
+    from server import warehouse
+    rows = warehouse.conn.execute("SELECT audit_id, username, row_hash FROM forensic.audit_log ORDER BY event_timestamp DESC LIMIT 1;").fetchall()
+    if rows:
+        target_id, original_user, orig_hash = rows[0]
+        # Mutate username maliciously to simulate DB/file tampering
+        warehouse.conn.execute("UPDATE forensic.audit_log SET username = 'malicious_tamperer' WHERE audit_id = ?;", [target_id])
+        tamper_report = warehouse.validate_audit_chain()
+        assert tamper_report["status"] == "FAIL"
+        assert tamper_report["hash_mismatches"] >= 1
+        assert any("ROW_HASH_MISMATCH" in rec for rec in tamper_report["affected_records"])
+
+        # Restore genuine record
+        warehouse.conn.execute("UPDATE forensic.audit_log SET username = ? WHERE audit_id = ?;", [original_user, target_id])
+        restored_report = warehouse.validate_audit_chain()
+        assert restored_report["status"] == "PASS"
+
+    print("✓ Forward-linked blockchain-style audit ledger & tamper detection validated!")
+
+def test_end_to_end_lineage_walk_and_sealing():
+    client = TestClient(app)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create an authentic evidence SMS DB
+        sms_db = Path(tmpdir) / "mmssms.db"
+        conn = sqlite3.connect(sms_db)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE sms (
+                _id INTEGER PRIMARY KEY,
+                address TEXT,
+                body TEXT,
+                date INTEGER,
+                type INTEGER,
+                read INTEGER
+            );
+        """)
+        ts_ms = int(time.time() * 1000)
+        c.execute("INSERT INTO sms VALUES (1, '+15559998888', 'Urgent wire transfer approval', ?, 1, 1)", (ts_ms,))
+        conn.commit()
+        conn.close()
+
+        # Ingest through V1 DFIR API
+        ingest_res = client.post("/api/v1/evidence", json={
+            "file_path": str(sms_db),
+            "device_id": "DEV-NEXUS-MOBILE-01",
+            "source_type": "filesystem",
+            "tool": "NexusForensics",
+            "examiner": "Lead Forensic Examiner"
+        })
+        assert ingest_res.status_code == 200
+        res_data = ingest_res.json()
+        assert res_data["status"] == "SUCCESS"
+        assert len(res_data["sha256"]) == 64
+        assert res_data["artifacts_carved"] >= 1
+        src_id = res_data["evidence_source_id"]
+        run_id = res_data["processing_run_id"]
+
+        # Fetch findings
+        f_res = client.get("/api/v1/findings")
+        assert f_res.status_code == 200
+        findings = f_res.json()["findings"]
+        assert len(findings) >= 1
+        target_finding = findings[0]
+        finding_id = target_finding["finding_id"]
+
+        # Execute Zimmerman Lineage Walk
+        lin_res = client.get(f"/api/v1/integrity/lineage/{finding_id}")
+        assert lin_res.status_code == 200
+        lineage = lin_res.json()
+        assert lineage["lineage_valid"] is True
+        assert len(lineage["events"]) >= 1
+
+        first_event = lineage["events"][0]
+        assert len(first_event["artifacts"]) >= 1
+
+        first_art = first_event["artifacts"][0]
+        # Check parser lineage
+        assert "sms" in first_art["parser"]["name"].lower()
+        assert len(first_art["parser"]["sha256"]) == 64
+        # Check evidence source
+        assert first_art["evidence_source"]["filename"] == "mmssms.db"
+        assert len(first_art["evidence_source"]["sha256"]) == 64
+        # Check processing run
+        assert first_art["processing_run"]["run_id"] == run_id
+        assert first_art["processing_run"]["engine_version"] == "1.0.0"
+
+        # Seal evidence source
+        seal_res = client.post(f"/api/v1/evidence/{src_id}/seal")
+        assert seal_res.status_code == 200
+        assert seal_res.json()["status"] == "SEALED"
+
+        # Verify scorecard maintains 100/100
+        sc_res = client.get("/api/v1/integrity/scorecard")
+        assert sc_res.status_code == 200
+        assert sc_res.json()["overall_integrity_score"] == "100/100"
+        assert sc_res.json()["release_gate_decision"] == "PASS"
+
+        print("✓ End-to-end Zimmerman lineage walk & evidence sealing validated!")
+
 if __name__ == "__main__":
     print("Running NexusForensics Mobile™ Verification Test Suite...")
     test_evidence_ingestion_and_coc()
@@ -274,5 +407,8 @@ if __name__ == "__main__":
     test_threat_ioc_scanner()
     test_fastapi_endpoints()
     test_zimmerman_parsers()
+    test_forensic_integrity_scorecard()
+    test_forward_linked_audit_chain_and_tamper_detection()
+    test_end_to_end_lineage_walk_and_sealing()
     print("\n🎉 ALL TESTS PASSED EMPIRICALLY (100% RFC & NIST SP 800-86 Compliant)")
 

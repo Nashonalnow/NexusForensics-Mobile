@@ -9,7 +9,7 @@ import uuid
 from typing import Dict, List, Any, Optional, Tuple
 
 from .models import FindingModel, ConfidenceFactorModel
-from .warehouse import DuckDBWarehouse
+from .warehouse import DuckDBWarehouse, to_uuid
 
 class ConfidenceScoringEngine:
     """
@@ -26,23 +26,25 @@ class ConfidenceScoringEngine:
         Synthesizes defensible findings with confidence score calculations.
         """
         findings: List[FindingModel] = []
+        did = to_uuid(device_id)
+        cid = to_uuid(case_id)
 
         # Pull communication events
         comms = self.wh.raw_sql_query("""
             SELECT * FROM forensic.events 
             WHERE category = 'communication' AND device_id = ?
             ORDER BY timestamp DESC;
-        """, params=[device_id], limit=100)
-
+        """, params=[did], limit=100)
 
         # For each communication event, inspect its relationships
         for c in comms.get("rows", []):
-            ev_id = c["event_id"]
+            ev_id = str(c["event_id"])
             rels = self.wh.query_relationships(ev_id)
 
-            supporting_events: List[str] = []
+            supporting_events: List[str] = [ev_id]
             contradictory_events: List[str] = []
             factors: List[ConfidenceFactorModel] = []
+
 
             # Base score: Direct Evidence recorded in official database
             base_score = 70
@@ -60,8 +62,8 @@ class ConfidenceScoringEngine:
 
             for r in rels:
                 rel_type = r.get("relationship_type")
-                source_id = r.get("source_event_id")
-                target_id = r.get("target_event_id")
+                source_id = str(r.get("source_event_id"))
+                target_id = str(r.get("target_event_id"))
                 other_id = source_id if source_id != ev_id else target_id
                 rationale = r.get("rationale", "")
 
@@ -125,8 +127,7 @@ class ConfidenceScoringEngine:
                 desc_parts.append("WARNING: Potential automated, background, or anomalous transmission.")
 
             finding = FindingModel(
-                case_id=case_id,
-                device_id=device_id,
+                case_id=cid,
                 title=title,
                 description=" ".join(desc_parts),
                 confidence=final_confidence,
@@ -137,10 +138,17 @@ class ConfidenceScoringEngine:
 
             # Persist finding in DuckDB
             self.wh.insert_finding(
-                finding.finding_id, finding.case_id, finding.device_id,
-                finding.title, finding.description, finding.confidence,
-                finding.finding_type, finding.supporting_events, finding.contradictory_events
+                finding_id=finding.finding_id,
+                case_id=finding.case_id,
+                title=finding.title,
+                description=finding.description,
+                finding_type=finding.finding_type,
+                confidence=finding.confidence,
+                methodology_version=getattr(finding, 'methodology_version', '1.0.0'),
+                analyst=getattr(finding, 'analyst', 'Lead Forensic Examiner'),
+                supporting_events=finding.supporting_events
             )
+
 
             # Persist confidence factors
             for f in factors:

@@ -85,6 +85,9 @@ class IOSMobileSMSParser(BaseArtifactParser):
 
                 artifact = ArtifactModel(
                     source_id=source_id,
+                    parser_id=self.parser_id,
+                    source_table="message",
+                    source_record_id=str(raw_dict.get("ROWID", "")),
                     artifact_type=self.artifact_type,
                     parser_name=self.parser_name,
                     parser_version=self.parser_version,
@@ -98,6 +101,7 @@ class IOSMobileSMSParser(BaseArtifactParser):
                         "service": service
                     }
                 )
+
 
                 event = EventModel(
                     artifact_id=artifact.artifact_id,

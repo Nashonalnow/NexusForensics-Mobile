@@ -28,6 +28,7 @@
                 <span style="color:#94a3b8;">CASE:</span>
                 <code id="headerCaseId" style="color:#00d2ff; background:#0c1424; padding:2px 6px; border-radius:4px;">CASE-2026-NEXUS-01</code>
             </div>
+            <span class="score-badge grade-secure" id="headerIntegrityBadge" style="cursor:pointer;" onclick="switchTab('tab-integrity')">ASSURANCE: 100/100 PASS</span>
             <span class="score-badge grade-nist">NIST SP 800-86</span>
             <span class="score-badge grade-secure" id="headerStatusBadge">OPERATIONAL</span>
         </div>
@@ -36,6 +37,7 @@
     <!-- Navigation Bar -->
     <nav class="nav-bar">
         <button class="nav-btn active" data-tab="tab-overview">📊 Dashboard & Case</button>
+        <button class="nav-btn" data-tab="tab-integrity">🛡️ Forensic Assurance & Scorecard</button>
         <button class="nav-btn" data-tab="tab-replay">🎬 Behavioral Replay</button>
         <button class="nav-btn" data-tab="tab-graph">🕸️ Temporal Graph</button>
         <button class="nav-btn" data-tab="tab-findings">⚖️ Court Defense & Proofs</button>
@@ -120,6 +122,94 @@
                         <div style="font-weight:700; font-size:0.95rem;">📱 Triage Live Android Device</div>
                         <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Audit connected testbeds, build properties, and security patch levels via ADB.</div>
                     </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: Evidentiary Assurance & Scorecard -->
+        <section id="tab-integrity" class="tab-pane">
+            <!-- Scorecard Overview Card -->
+            <div class="tactical-card" style="border-left: 4px solid var(--accent-green);">
+                <div class="card-header">
+                    <div>
+                        <h3>Evidentiary Assurance Scorecard — 100/100 Forensic Admissibility Gate</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Automated evaluation of PROV-001 through PROV-011, CUST-001 through CUST-003, AUD-001 through AUD-005, and DEF-001 through DEF-002.</p>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="btn-primary" id="btnRunAssuranceScorecard" style="padding:6px 14px;">🔄 Audit Scorecard</button>
+                        <button class="btn-secondary" id="btnVerifyAuditChain" style="padding:6px 14px;">⛓️ Verify Hash Chain</button>
+                        <button class="btn-secondary" id="btnCommitMerkleCheckpoint" style="padding:6px 14px;">📌 Create Checkpoint</button>
+                    </div>
+                </div>
+
+                <!-- Top Scorecard KPI Banner -->
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:10px;">
+                    <div style="background:#0c1424; border:1px solid #1e293b; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase;">Integrity Score</div>
+                        <div id="integrityScoreVal" style="font-size:1.8rem; font-weight:800; color:var(--accent-green); font-family:var(--font-mono);">100/100</div>
+                        <div style="font-size:0.7rem; color:#94a3b8;">Zero Artifact Drift</div>
+                    </div>
+                    <div style="background:#0c1424; border:1px solid #1e293b; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase;">Release Gate Decision</div>
+                        <div id="integrityGateVal" style="font-size:1.3rem; font-weight:800; color:var(--accent-green); margin-top:4px;">PASS</div>
+                        <div style="font-size:0.7rem; color:#00f59b;">Court Admissible</div>
+                    </div>
+                    <div style="background:#0c1424; border:1px solid #1e293b; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase;">Audit Chain Ledger</div>
+                        <div id="integrityAuditChainVal" style="font-size:1.3rem; font-weight:800; color:#00d2ff; margin-top:4px;">PASS</div>
+                        <div style="font-size:0.7rem; color:#94a3b8;" id="integrityAuditChainSub">0 breaks • 0 tampering</div>
+                    </div>
+                    <div style="background:#0c1424; border:1px solid #1e293b; border-radius:6px; padding:12px; text-align:center;">
+                        <div style="font-size:0.72rem; color:#94a3b8; text-transform:uppercase;">Merkle Root Digest</div>
+                        <div id="integrityMerkleRootVal" style="font-size:0.72rem; font-family:var(--font-mono); color:#cbd5e1; word-break:break-all; margin-top:6px;">Computing...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Finding Lineage Walker Card -->
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Zimmerman End-to-End Lineage Walker ("Finding to Silicon")</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Traverse exact forensic ancestry: Finding ➔ Timeline Events ➔ Parsed Artifacts ➔ Zimmerman Parser ➔ Processing Run ➔ Physical Evidence Source SHA-256.</p>
+                    </div>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <label style="font-size:0.75rem; color:#94a3b8;">SELECT FINDING:</label>
+                        <select id="lineageFindingSelect" style="background:#0c1424; color:#f8fafc; border:1px solid #1e293b; padding:4px 8px; border-radius:4px; font-size:0.8rem; font-family:var(--font-mono); min-width:260px;">
+                            <option value="">Loading synthesized findings...</option>
+                        </select>
+                        <button class="btn-secondary" id="btnWalkLineage" style="padding:4px 10px; font-size:0.78rem;">🔍 Walk Lineage</button>
+                    </div>
+                </div>
+
+                <div id="lineageWalkerContainer" style="padding:8px; min-height:100px;">
+                    <div style="color:#94a3b8; font-size:0.82rem; text-align:center; padding:30px;">
+                        Select a synthesized finding above or ingest an evidence package to view full court-defensible cryptographic lineage walk.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assurance Controls Checklist Table -->
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Evidentiary Assurance Controls (21-Point Verification)</h3>
+                    <div style="font-size:0.75rem; color:#94a3b8;"><span id="controlsPassedCount">21</span> / <span id="controlsTotalCount">21</span> Passed</div>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="assuranceControlsTable">
+                        <thead>
+                            <tr>
+                                <th>Control</th>
+                                <th>Name</th>
+                                <th>Severity</th>
+                                <th>Status</th>
+                                <th>Verification Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="assuranceControlsTableBody">
+                            <tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">Loading evidentiary controls...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </section>

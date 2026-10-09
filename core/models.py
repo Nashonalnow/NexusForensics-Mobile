@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 NexusForensics Mobile™ | Core Data Models
-NEXUS MVP Domain Model: The 5 Canonical Entities (Artifact -> Event -> Relationship -> Finding -> Report)
+NEXUS Hardened Forensic Domain Models: First-class Provenance, Reproducibility, Parser Lineage, and Evidentiary Integrity.
 Strict Copper Standard: 100% authentic evidence hashes, schemas, and timestamps.
 """
 
@@ -10,103 +10,212 @@ from pydantic import BaseModel, Field
 import time
 import uuid
 
-# 1. Case
+def default_uuid() -> str:
+    return str(uuid.uuid4())
+
+# 1. Case (Hardened)
 class CaseModel(BaseModel):
-    case_id: str = Field(default_factory=lambda: f"CASE-{uuid.uuid4().hex[:8].upper()}")
+    case_id: str = Field(default_factory=default_uuid)
+    case_number: str = Field(default_factory=lambda: f"CASE-{uuid.uuid4().hex[:8].upper()}")
     case_name: str
     description: Optional[str] = ""
-    status: str = "active"  # "active", "archived", "closed"
+    status: str = "open"  # 'open', 'closed', 'archived'
     created_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
     created_by: str = "Examiner"
+    last_modified: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    classification: str = "internal"  # 'public', 'internal', 'confidential', 'restricted'
+    retention_until: Optional[str] = None
     tags: List[str] = []
 
-# 2. Device
+# 2. Device (Hardened)
 class DeviceModel(BaseModel):
-    device_id: str = Field(default_factory=lambda: f"DEV-{uuid.uuid4().hex[:8].upper()}")
+    device_id: str = Field(default_factory=default_uuid)
     case_id: str
-    platform: str  # "Android", "iOS", "Generic"
+    platform: str = "android"  # 'android', 'ios', 'cloud', 'unknown'
     manufacturer: Optional[str] = "Unknown"
     model: Optional[str] = "Unknown"
     serial_number: Optional[str] = None
     imei: Optional[str] = None
-    phone_number: Optional[str] = None
+    meid: Optional[str] = None
+    operating_system: Optional[str] = None
     os_version: Optional[str] = None
-    acquisition_date: Optional[str] = None
+    timezone: Optional[str] = "UTC"
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
 
-# 3. Evidence Source
+# 3. Evidence Source (Immutable)
 class EvidenceSourceModel(BaseModel):
-    source_id: str = Field(default_factory=lambda: f"SRC-{uuid.uuid4().hex[:8].upper()}")
+    source_id: str = Field(default_factory=default_uuid)
     device_id: str
-    source_type: str  # "filesystem", "logical", "physical", "nexusproxy", "backup"
-    acquisition_tool: Optional[str] = "NexusForensics"
-    acquisition_tool_version: Optional[str] = "1.0"
+    source_type: str = "filesystem"  # 'filesystem', 'physical', 'logical', 'backup', 'cloud', 'manual'
+    acquisition_tool: str = "NexusForensics"
+    acquisition_tool_version: Optional[str] = "1.0.0"
+    acquisition_operator: Optional[str] = "Examiner"
+    acquisition_started: Optional[str] = None
+    acquisition_completed: Optional[str] = None
     original_filename: str
+    original_path: Optional[str] = None
     file_size: int
     sha256: str
+    sha1: Optional[str] = None
+    md5: Optional[str] = None
     imported_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
-    examiner: str = "Examiner"
+    imported_by: str = "Examiner"
+    evidence_sealed: bool = False
 
-# 4. Artifact
-class ArtifactModel(BaseModel):
-    artifact_id: str = Field(default_factory=lambda: f"ART-{uuid.uuid4().hex[:8].upper()}")
-    source_id: str
-    artifact_type: str  # "sms", "call_log", "knowledgec", "chrome_history", "safari_history", "photos", "network_flow"
+# 4. Parser Registry Model
+class ParserModel(BaseModel):
+    parser_id: str = Field(default_factory=default_uuid)
     parser_name: str
-    parser_version: str = "1.0"
+    parser_version: str = "1.0.0"
+    git_commit: Optional[str] = "9f7c8e2"
+    build_number: Optional[str] = "2026.10.1"
+    release_date: Optional[str] = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    parser_sha256: Optional[str] = None
+    developer: Optional[str] = "NEXUS Mobile DFIR Team"
+    active: bool = True
+
+# 5. Artifact (Enhanced Provenance)
+class ArtifactModel(BaseModel):
+    artifact_id: str = Field(default_factory=default_uuid)
+    source_id: str
+    parser_id: str
+    evidence_offset: Optional[int] = None
+    source_table: Optional[str] = None
+    source_record_id: Optional[str] = None
+    artifact_type: str
     artifact_timestamp: Optional[str] = None
+    timezone_source: Optional[str] = "UTC"
+    timestamp_precision: Optional[str] = "exact"  # 'exact', 'second', 'minute', 'hour', 'day', 'estimated'
     record_hash: str
+    parent_artifact_id: Optional[str] = None
     raw_data: Dict[str, Any] = {}
     normalized_data: Dict[str, Any] = {}
+    parser_notes: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    # Compatibility properties
+    parser_name: Optional[str] = None
+    parser_version: Optional[str] = "1.0.0"
 
-# 5. Event
+# 6. Event (Audit-Capable)
 class EventModel(BaseModel):
-    event_id: str = Field(default_factory=lambda: f"EV-{uuid.uuid4().hex[:8].upper()}")
+    event_id: str = Field(default_factory=default_uuid)
     artifact_id: str
     device_id: str
+    event_type: str
+    category: str
     timestamp: str  # ISO 8601 UTC
-    event_type: str  # "unlock", "screen_on", "message_sent", "call_started", "photo_taken", "app_opened", "wifi_connected", "gps_update"
-    category: str  # "communication", "device_state", "location", "app_activity", "network"
-    description: str
+    timezone_offset_minutes: Optional[int] = 0
     confidence: int = 100
-    location_lat: Optional[float] = None
-    location_lon: Optional[float] = None
+    inferred: bool = False
+    description: Optional[str] = ""
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    altitude: Optional[float] = None
+    source_weight: float = 1.0
     actor: Optional[str] = None
     target: Optional[str] = None
     raw_payload: Dict[str, Any] = {}
 
-# 6. Relationship
+# 7. Event Provenance Linkage
+class EventProvenanceModel(BaseModel):
+    event_id: str
+    artifact_id: str
+    provenance_role: str = "primary"  # "primary", "corroborating", "inferred_from"
+    contribution_weight: float = 1.0
+
+# 8. Relationship
 class RelationshipModel(BaseModel):
-    relationship_id: str = Field(default_factory=lambda: f"REL-{uuid.uuid4().hex[:8].upper()}")
+    relationship_id: str = Field(default_factory=default_uuid)
     source_event_id: str
     target_event_id: str
-    relationship_type: str  # "preceded_by", "followed_by", "originated_from", "supports", "contradicts", "located_at", "used_app", "connected_to"
+    relationship_type: str = "preceded_by"  # 'preceded_by', 'followed_by', 'supports', 'contradicts', etc.
     weight: float = 1.0
     rationale: Optional[str] = None
-    created_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    generated_by: Optional[str] = "NEXUS Correlation Engine"
+    generated_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
 
-# 7. Finding
+# 9. Finding
 class FindingModel(BaseModel):
-    finding_id: str = Field(default_factory=lambda: f"F-{uuid.uuid4().hex[:8].upper()}")
+    finding_id: str = Field(default_factory=default_uuid)
     case_id: str
-    device_id: str
     title: str
-    description: str
-    confidence: int  # 0 to 100
-    finding_type: str  # "user_activity", "threat", "location_presence", "communication"
+    description: Optional[str] = ""
+    finding_type: Optional[str] = "user_activity"
+    confidence: int = 100
+    methodology_version: Optional[str] = "1.0.0"
+    analyst: Optional[str] = "Lead Forensic Examiner"
+    created_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    reviewed: bool = False
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[str] = None
     supporting_events: List[str] = []
     contradictory_events: List[str] = []
-    created_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
 
-# 8. Confidence Factor
+# 10. Finding Evidence Linkage
+class FindingEvidenceModel(BaseModel):
+    finding_id: str
+    event_id: str
+    evidence_role: str = "supporting"  # "supporting", "contradictory", "context"
+
+# 11. Confidence Factor
 class ConfidenceFactorModel(BaseModel):
-    factor_id: str = Field(default_factory=lambda: f"CONF-{uuid.uuid4().hex[:8].upper()}")
+    factor_id: str = Field(default_factory=default_uuid)
     finding_id: str
     event_id: Optional[str] = None
-    score: int  # e.g. +35, +20, -40
-    factor_type: str  # "direct_evidence", "supporting_corroboration", "temporal_proximity", "contradiction"
+    score: int
+    factor_type: str
     explanation: str
 
-# 9. Behavioral State (Digital Witness Replay)
+# 12. Chain of Custody (Immutable)
+class ChainOfCustodyModel(BaseModel):
+    custody_id: str = Field(default_factory=default_uuid)
+    source_id: str
+    action_type: str  # "INGEST", "EXAMINE", "EXTRACT", "VERIFY", "EXPORT"
+    actor: str
+    timestamp: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    location: Optional[str] = "Forensic Workstation"
+    notes: Optional[str] = None
+    previous_custody_id: Optional[str] = None
+
+# 13. Processing Run (Investigation Replay & Reproducibility)
+class ProcessingRunModel(BaseModel):
+    run_id: str = Field(default_factory=default_uuid)
+    case_id: Optional[str] = None
+    engine_version: str = "1.0.0"
+    ruleset_version: str = "2026.10"
+    graph_version: str = "1.0.0"
+    build_sha256: str = "0000000000000000000000000000000000000000000000000000000000000000"
+    executed_by: str = "Examiner"
+    executed_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    parameters: Dict[str, Any] = {}
+
+# 14. Artifact-to-Run Linkage
+class ArtifactProcessingModel(BaseModel):
+    run_id: str
+    artifact_id: str
+    operation: str = "parse"
+
+# 15. Forward-Linked Blockchain-Style Audit Log
+class AuditLogModel(BaseModel):
+    audit_id: str = Field(default_factory=default_uuid)
+    event_timestamp: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    username: str
+    operation: str
+    entity_type: str
+    entity_id: str
+    previous_hash: Optional[str] = None
+    row_hash: str
+    details: Dict[str, Any] = {}
+
+# 16. Merkle Checkpoint
+class AuditCheckpointModel(BaseModel):
+    checkpoint_id: str = Field(default_factory=default_uuid)
+    generated_at: str = Field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()))
+    record_count: int
+    merkle_root: str
+
+# 17. Behavioral State (Digital Witness Replay)
 class BehavioralStateModel(BaseModel):
     timestamp: str
     epoch_timestamp: float
@@ -120,15 +229,9 @@ class BehavioralStateModel(BaseModel):
     confidence: int  # 0 to 100
     corroborating_events: List[str] = []
 
-# NIST SP 800-86 Evidence & Forensic Models
-class CaseMetadata(BaseModel):
-    case_id: str = Field(..., description="Unique case identifier (e.g. CASE-2026-001)")
-    title: str = Field(..., description="Case title or operation name")
-    examiner: str = Field(..., description="Lead forensic investigator name or callsign")
-    organization: str = Field(default="Security Operations Center / DFIR Unit")
-    created_at: int = Field(default_factory=lambda: int(time.time()))
-    notes: Optional[str] = ""
-
+# Legacy aliases for backward compatibility
+CaseMetadata = CaseModel
+EvidenceArtifact = BaseModel
 class EvidenceArtifact(BaseModel):
     artifact_id: str
     file_name: str
@@ -137,15 +240,15 @@ class EvidenceArtifact(BaseModel):
     sha256: str
     md5: str
     mime_type: str
-    origin: str  # "Android", "iOS", "NexusProxy", "Manual"
+    origin: str
     ingested_at: int
-    integrity_status: str = "VERIFIED"  # "VERIFIED", "TAMPERED", "UNCHECKED"
+    integrity_status: str = "VERIFIED"
     metadata: Dict[str, Any] = {}
 
 class ChainOfCustodyRecord(BaseModel):
     record_id: str
     artifact_id: str
-    action: str  # "INGEST", "EXAMINE", "EXTRACT", "VERIFY", "EXPORT"
+    action: str
     examiner: str
     timestamp: int
     sha256_hash: str
@@ -157,20 +260,20 @@ class TimelineEvent(BaseModel):
     timestamp_utc: str
     epoch_timestamp: float
     source_artifact: str
-    category: str  # "NETWORK", "FILESYSTEM", "DATABASE", "SYSTEM", "THREAT"
+    category: str
     summary: str
     details: Dict[str, Any] = {}
-    severity: str = "INFO"  # "HIGH", "MEDIUM", "LOW", "INFO"
+    severity: str = "INFO"
 
 class ThreatIndicator(BaseModel):
     finding_id: str
     title: str
-    category: str  # "STALKERWARE", "MALWARE", "SUSPICIOUS_PERMISSION", "C2_DOMAIN", "PERSISTENCE"
-    severity: str  # "HIGH", "MEDIUM", "LOW", "INFO"
+    category: str
+    severity: str
     description: str
     evidence: str
     source_artifact: str
-    mitre_attack_id: Optional[str] = "T1430"  # Mobile ATT&CK
+    mitre_attack_id: Optional[str] = "T1430"
     remediation: str
 
 class SQLiteColumn(BaseModel):
@@ -188,4 +291,3 @@ class SQLiteTableInfo(BaseModel):
     has_wal: bool = False
     has_shm: bool = False
     freelist_count: int = 0
-

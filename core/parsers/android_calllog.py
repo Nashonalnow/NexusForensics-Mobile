@@ -73,6 +73,9 @@ class AndroidCallLogParser(BaseArtifactParser):
 
                 artifact = ArtifactModel(
                     source_id=source_id,
+                    parser_id=self.parser_id,
+                    source_table="calls",
+                    source_record_id=str(raw_dict.get("_id", "")),
                     artifact_type=self.artifact_type,
                     parser_name=self.parser_name,
                     parser_version=self.parser_version,
@@ -86,6 +89,7 @@ class AndroidCallLogParser(BaseArtifactParser):
                         "contact_name": raw_dict.get("name")
                     }
                 )
+
 
                 event = EventModel(
                     artifact_id=artifact.artifact_id,

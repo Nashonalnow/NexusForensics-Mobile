@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusForensics Mobile™ | Digital Forensics & Incident Response Workbench</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Top Header -->
+    <header class="app-header">
+        <div class="brand-section">
+            <span style="font-size: 1.4rem;">🔬</span>
+            <div>
+                <div class="brand-title">
+                    NexusForensics Mobile™
+                    <span class="badge-version">v0.1.0-DFIR</span>
+                </div>
+                <div style="font-size: 0.72rem; color: #94a3b8;">Mobile Artifact Carving • SQLite Journal Triage • NIST SP 800-86 Chain of Custody</div>
+            </div>
+        </div>
+
+        <div class="header-status">
+            <div style="font-family: var(--font-mono); font-size: 0.78rem; color: #cbd5e1; display:flex; gap:6px; align-items:center;">
+                <span style="color:#94a3b8;">CASE:</span>
+                <code id="headerCaseId" style="color:#00d2ff; background:#0c1424; padding:2px 6px; border-radius:4px;">CASE-2026-NEXUS-01</code>
+            </div>
+            <span class="score-badge grade-nist">NIST SP 800-86</span>
+            <span class="score-badge grade-secure" id="headerStatusBadge">OPERATIONAL</span>
+        </div>
+    </header>
+
+    <!-- Navigation Bar -->
+    <nav class="nav-bar">
+        <button class="nav-btn active" data-tab="tab-overview">📊 Dashboard & Case</button>
+        <button class="nav-btn" data-tab="tab-evidence">📦 Evidence & Chain of Custody</button>
+        <button class="nav-btn" data-tab="tab-sqlite">🗄️ SQLite & WAL Inspector</button>
+        <button class="nav-btn" data-tab="tab-timeline">⏱️ Chronological Timeline</button>
+        <button class="nav-btn" data-tab="tab-threats">🛡️ Threat & IoC Guard</button>
+        <button class="nav-btn" data-tab="tab-devices">📱 Live Testbeds (ADB)</button>
+        <button class="nav-btn" data-tab="tab-report">📑 Forensic Dossier</button>
+    </nav>
+
+    <!-- Main Workspace -->
+    <main class="main-container">
+
+        <!-- Top Metrics Grid -->
+        <div class="stat-grid">
+            <div class="stat-card" style="cursor:pointer;" onclick="switchTab('tab-evidence')">
+                <span class="stat-num" id="statArtifacts">0</span>
+                <span class="stat-lbl">Evidence Artifacts</span>
+            </div>
+            <div class="stat-card" style="cursor:pointer;" onclick="switchTab('tab-timeline')">
+                <span class="stat-num" id="statTimeline">0</span>
+                <span class="stat-lbl">Timeline Events</span>
+            </div>
+            <div class="stat-card" style="cursor:pointer;" onclick="switchTab('tab-threats')">
+                <span class="stat-num" id="statFindings" style="color:var(--accent-red);">0</span>
+                <span class="stat-lbl">IoC Threat Detections</span>
+            </div>
+            <div class="stat-card" style="cursor:pointer;" onclick="switchTab('tab-devices')">
+                <span class="stat-num" id="statDevices" style="color:var(--accent-green);">0</span>
+                <span class="stat-lbl">Connected Android Testbeds</span>
+            </div>
+        </div>
+
+        <!-- TAB 1: Dashboard & Case Overview -->
+        <section id="tab-overview" class="tab-pane active">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Active Forensic Investigation Case</h3>
+                    <button class="btn-secondary" id="btnEditCase">✏️ Edit Case Metadata</button>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:16px; font-size:0.85rem;">
+                    <div>
+                        <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Case Title</div>
+                        <div id="caseTitle" style="font-weight:700; color:#f8fafc; font-size:1rem; margin-top:2px;">Mobile Security & Incident Triage</div>
+                    </div>
+                    <div>
+                        <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Lead Examiner</div>
+                        <div id="caseExaminer" style="font-weight:600; color:#00d2ff; margin-top:2px;">Lead Forensic Investigator</div>
+                    </div>
+                    <div>
+                        <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Organization / Unit</div>
+                        <div id="caseOrg" style="font-weight:600; color:#cbd5e1; margin-top:2px;">Enterprise DFIR & Security Operations</div>
+                    </div>
+                    <div>
+                        <div style="color:#94a3b8; font-size:0.75rem; text-transform:uppercase;">Evidence Storage Dir</div>
+                        <code id="caseStoragePath" style="font-family:var(--font-mono); color:#94a3b8; font-size:0.75rem;">/evidence</code>
+                    </div>
+                </div>
+                <div style="margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.05); font-size:0.82rem; color:#cbd5e1;">
+                    <strong>Case Notes:</strong> <span id="caseNotes">Authorized forensic examination of mobile testbeds and network telemetry.</span>
+                </div>
+            </div>
+
+            <!-- Quick Ingest Actions -->
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Quick Forensic Workflows & NexusProxy Ingestion</h3>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+                    <button class="btn-primary" style="padding:14px; text-align:left;" id="btnQuickIngestNexusProxy">
+                        <div style="font-weight:700; font-size:0.95rem;">⚡ Ingest NexusProxy-Mobile Package</div>
+                        <div style="font-size:0.75rem; opacity:0.85; margin-top:2px;">Auto-discovers and imports latest engagement_*.zip bundle from NexusProxy Mobile.</div>
+                    </button>
+                    <button class="btn-secondary" style="padding:14px; text-align:left;" onclick="switchTab('tab-evidence')">
+                        <div style="font-weight:700; font-size:0.95rem;">📁 Ingest Local Evidence File</div>
+                        <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Import SQLite database (.db), Android APK (.apk), or Apple Plist (.plist).</div>
+                    </button>
+                    <button class="btn-secondary" style="padding:14px; text-align:left;" onclick="switchTab('tab-devices')">
+                        <div style="font-weight:700; font-size:0.95rem;">📱 Triage Live Android Device</div>
+                        <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Audit connected testbeds, build properties, and security patch levels via ADB.</div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: Evidence & Chain of Custody -->
+        <section id="tab-evidence" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Ingest Forensic Evidence Artifact</h3>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                    <div style="display:flex; gap:8px;">
+                        <input type="text" id="inputFilePath" class="url-input" placeholder="Absolute file path (e.g. /path/to/database.db or /path/to/app.apk)" />
+                        <button class="btn-primary" id="btnIngestPath">📥 Ingest File</button>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span style="font-size:0.8rem; color:#94a3b8;">Or select from disk:</span>
+                        <input type="file" id="inputFileUpload" style="font-size:0.8rem; color:#94a3b8;" />
+                        <button class="btn-secondary" id="btnUploadFile">Upload & Hash</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ingested Artifacts List -->
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Evidence Inventory (Cryptographically Hashed)</h3>
+                    <span class="score-badge grade-secure">INTEGRITY SEALED</span>
+                </div>
+                <div class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Artifact ID</th>
+                                <th>File Name</th>
+                                <th>Origin</th>
+                                <th>Size</th>
+                                <th>SHA-256 Digest</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="evidenceTableBody">
+                            <tr><td colspan="7" style="text-align:center; color:#94a3b8; padding:20px;">No evidence artifacts ingested yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Chain of Custody Audit Log -->
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>NIST SP 800-86 Chain of Custody Ledger</h3>
+                    <span class="score-badge grade-nist">IMMUTABLE LOG</span>
+                </div>
+                <div class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Entry ID</th>
+                                <th>Timestamp</th>
+                                <th>Action</th>
+                                <th>Examiner</th>
+                                <th>Artifact</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cocTableBody">
+                            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No Chain of Custody entries recorded.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: SQLite & WAL Inspector -->
+        <section id="tab-sqlite" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <h3>Forensic SQLite Database & WAL Inspector</h3>
+                    <div class="btn-row">
+                        <select id="sqliteArtifactSelect" class="url-input" style="max-width:280px;">
+                            <option value="">Select Ingested SQLite Database...</option>
+                        </select>
+                        <button class="btn-primary" id="btnInspectSqlite">🔍 Inspect Database</button>
+                    </div>
+                </div>
+
+                <div id="sqliteDbMetadata" style="display:none; margin-bottom:16px; background:#0c1424; padding:12px; border-radius:6px; font-size:0.8rem; display:flex; gap:16px; flex-wrap:wrap;">
+                    <div><strong>WAL Journal:</strong> <span id="metaWal">NO</span></div>
+                    <div><strong>Freelist Pages:</strong> <span id="metaFreelist">0</span></div>
+                    <div><strong>Page Size:</strong> <span id="metaPageSize">4096</span></div>
+                    <div><strong>Total Tables:</strong> <span id="metaTableCount">0</span></div>
+                </div>
+
+                <div style="display:grid; grid-template-columns: 280px 1fr; gap:16px;">
+                    <!-- Tables list -->
+                    <div style="border:1px solid var(--border-color); border-radius:6px; padding:10px; max-height:500px; overflow-y:auto; background:#080d16;">
+                        <div style="font-weight:700; font-size:0.85rem; margin-bottom:8px; color:#cbd5e1;">Tables & Row Counts</div>
+                        <div id="sqliteTablesList" style="display:flex; flex-direction:column; gap:4px; font-size:0.8rem;">
+                            <span style="color:#94a3b8;">Select database to inspect tables</span>
+                        </div>
+                    </div>
+
+                    <!-- Table content & schema viewer -->
+                    <div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <h4 id="activeTableName" style="font-size:0.9rem; color:#00d2ff;">No Table Selected</h4>
+                            <span id="activeTableRowCount" style="font-size:0.75rem; color:#94a3b8;">0 rows</span>
+                        </div>
+                        <div class="history-table-container" style="max-height:450px; overflow-y:auto;">
+                            <table class="history-table" id="sqliteDataTable">
+                                <thead>
+                                    <tr id="sqliteDataHeader"><th>Column</th></tr>
+                                </thead>
+                                <tbody id="sqliteDataBody">
+                                    <tr><td style="color:#94a3b8; text-align:center;">Select table to inspect contents</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: Chronological Timeline -->
+        <section id="tab-timeline" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Unified Chronological Forensic Timeline</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Correlates network captures, SQLite records, file MACB timestamps, and threat events.</p>
+                    </div>
+                    <div class="btn-row">
+                        <select id="timelineCategorySelect" class="url-input" style="width:140px;">
+                            <option value="">All Categories</option>
+                            <option value="NETWORK">Network</option>
+                            <option value="DATABASE">Database</option>
+                            <option value="FILESYSTEM">Filesystem</option>
+                            <option value="SYSTEM">System</option>
+                            <option value="THREAT">Threat</option>
+                        </select>
+                        <input type="text" id="timelineSearchInput" placeholder="Search events..." class="search-input" style="width:200px;" />
+                        <button class="btn-secondary" id="btnRefreshTimeline">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div class="timeline-list" id="timelineContainer">
+                    <div style="text-align:center; color:#94a3b8; padding:30px;">No timeline events recorded yet. Ingest an evidence package or SQLite database.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: Threat & IoC Guard -->
+        <section id="tab-threats" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Threat & Stalkerware IoC Guard</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Automated detection of commercial surveillance tools, credential leakage, and MITRE ATT&CK for Mobile TTPs.</p>
+                    </div>
+                    <span class="score-badge" id="threatsCountBadge" style="background:rgba(239,68,68,0.2); color:#ef4444;">0 FINDINGS</span>
+                </div>
+
+                <div id="threatsContainer">
+                    <div style="text-align:center; color:#94a3b8; padding:30px;">No security threats or stalkerware IoCs detected. Evidence is clean.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: Live Android Testbeds (ADB) -->
+        <section id="tab-devices" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Connected Mobile Testbeds (Android Debug Bridge)</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Hardware & OS parameters extracted from physical USB testbeds or Android emulators.</p>
+                    </div>
+                    <button class="btn-primary" id="btnRefreshDevices">🔄 Scan ADB Testbeds</button>
+                </div>
+
+                <div id="devicesContainer" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px;">
+                    <div style="text-align:center; color:#94a3b8; padding:30px; grid-column:1/-1;">Scanning for connected testbeds...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 7: Forensic Dossier Export -->
+        <section id="tab-report" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>NIST SP 800-86 Forensic Dossier Compilation</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Generates court-admissible forensic investigation package with SHA-256 manifests and immutable chain of custody.</p>
+                    </div>
+                    <button class="btn-primary" id="btnExportDossier">📦 Compile & Export Dossier</button>
+                </div>
+
+                <div id="dossierExportResult" style="background:#080d16; border:1px solid var(--border-color); border-radius:6px; padding:16px; font-size:0.85rem; color:#cbd5e1;">
+                    Click "Compile & Export Dossier" to bundle active case evidence into a signed forensic package.
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

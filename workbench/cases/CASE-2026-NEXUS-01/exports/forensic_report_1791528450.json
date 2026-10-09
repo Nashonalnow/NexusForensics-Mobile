@@ -1,0 +1,103 @@
+{
+  "title": "NIST SP 800-86 Mobile Forensics Dossier",
+  "generated_at": 1791528450,
+  "case": {
+    "case_id": "CASE-2026-NEXUS-01",
+    "title": "Mobile Security & Forensic Incident Triage",
+    "examiner": "Lead Forensic Investigator",
+    "organization": "Enterprise DFIR & Security Operations",
+    "created_at": 1791528426,
+    "notes": "Authorized forensic examination of mobile testbeds and network telemetry."
+  },
+  "integrity_seal": {
+    "total_artifacts": 1,
+    "artifacts_verified": 1,
+    "chain_of_custody_steps": 2
+  },
+  "artifacts": [
+    {
+      "artifact_id": "EV-1791528435407-8a4c6eda",
+      "file_name": "engagement_1791528380.zip",
+      "file_path": "/tmp/nexusproxy_exports/engagement_1791528380.zip",
+      "file_size_bytes": 1546,
+      "sha256": "8a4c6edaa1a1f2fade8600ad4ea099d63468149d075ed6ee68d3b0d1732df3d8",
+      "md5": "d069afa47839a944033b6ca6e86f9f94",
+      "mime_type": "application/zip",
+      "origin": "NexusProxy-Mobile",
+      "ingested_at": 1791528435,
+      "integrity_status": "VERIFIED",
+      "metadata": {
+        "bundle_type": "NexusProxy HTTP/S Engagement Package",
+        "manifest": {
+          "project": "Default Assessment",
+          "exported_at": 1791528380,
+          "total_transactions": 2,
+          "scope": [
+            "*.target.com",
+            "api.target.com",
+            "httpbin.org"
+          ],
+          "hashes": {
+            "tx-1001": "9b1c2b53a39e83b38c35b67ad78e47f9f71c998c5691de50b3f8863f8d689e47",
+            "tx-1002": "3a7d4f9b8c21a4e5d6f7890123456789abcdef0123456789abcdef0123456789"
+          }
+        }
+      }
+    }
+  ],
+  "chain_of_custody": [
+    {
+      "record_id": "COC-1791528435407",
+      "artifact_id": "EV-1791528435407-8a4c6eda",
+      "action": "INGEST",
+      "examiner": "Lead Forensic Investigator",
+      "timestamp": 1791528435,
+      "sha256_hash": "8a4c6edaa1a1f2fade8600ad4ea099d63468149d075ed6ee68d3b0d1732df3d8",
+      "details": "Acquisition of engagement_1791528380.zip (1546 bytes) into Case CASE-2026-NEXUS-01.",
+      "nist_compliance": "NIST SP 800-86 Compliant"
+    },
+    {
+      "record_id": "COC-VER-1791528435408",
+      "artifact_id": "EV-1791528435407-8a4c6eda",
+      "action": "VERIFY",
+      "examiner": "Lead Forensic Investigator",
+      "timestamp": 1791528435,
+      "sha256_hash": "8a4c6edaa1a1f2fade8600ad4ea099d63468149d075ed6ee68d3b0d1732df3d8",
+      "details": "Verified NexusProxy bundle integrity. Files verified: 4. Status: VERIFIED.",
+      "nist_compliance": "NIST SP 800-86 Compliant"
+    }
+  ],
+  "ioc_findings": [],
+  "timeline_events": [
+    {
+      "event_id": "EVT-NP-0-1791528435408",
+      "timestamp_utc": "2026-10-09 06:46:20 UTC",
+      "epoch_timestamp": 1791528380.0,
+      "source_artifact": "EV-1791528435407-8a4c6eda",
+      "category": "NETWORK",
+      "summary": "HTTP Intercept: GET httpbin.org/get",
+      "details": {
+        "method": "GET",
+        "host": "httpbin.org",
+        "path": "/get",
+        "raw_preview": "GET /get HTTP/1.1\r\nHost: httpbin.org\r\nUser-Agent: NexusProxy/0.1.0\r\nAccept: application/json\r\n\r\n"
+      },
+      "severity": "INFO"
+    },
+    {
+      "event_id": "EVT-NP-2-1791528435408",
+      "timestamp_utc": "2026-10-09 06:46:10 UTC",
+      "epoch_timestamp": 1791528370.0,
+      "source_artifact": "EV-1791528435407-8a4c6eda",
+      "category": "NETWORK",
+      "summary": "HTTP Intercept: POST httpbin.org/post",
+      "details": {
+        "method": "POST",
+        "host": "httpbin.org",
+        "path": "/post",
+        "raw_preview": "POST /post HTTP/1.1\r\nHost: httpbin.org\r\nContent-Type: application/json\r\nAuthorization: [REDACTED_BY_NEXUSPROXY]\r\nContent-Length: 26\r\n\r\n{\"action\":\"verify_token\"}"
+      },
+      "severity": "INFO"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# NexusForensics Mobile™ Git Ignore Rules
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Environments & Virtualenvs
+.env
+.venv
+env/
+venv/
+
+# Forensic Evidence & Dumps (Prevent Leaking Case Data)
+/cases/*/raw/
+/cases/*/exports/
+/evidence/
+*.pcap
+*.pcapng
+*.ab
+*.apk
+*.ipa
+*.db-wal
+*.db-shm
+
+# OS & Editor Files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

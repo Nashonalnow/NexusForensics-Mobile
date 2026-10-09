@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""
+NexusForensics Mobile™ | Command-Line Forensic Investigation Utility
+Automates mobile artifact intake, SQLite inspection, APK triage, and NIST SP 800-86 reporting.
+Strict Copper Standard: 100% authentic evidence hashes, schemas, and timestamps.
+"""
+
+import os
+import sys
+import argparse
+import json
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.evidence_ingestor import EvidenceIngestor
+from core.sqlite_inspector import SQLiteInspector
+from core.android_parser import AndroidForensicsParser
+from core.ios_parser import IOSForensicsParser
+from core.ioc_scanner import ThreatIoCScanner
+from core.timeline_engine import TimelineEngine
+
+def main():
+    parser = argparse.ArgumentParser(description="NexusForensics Mobile™ CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # Ingest
+    ingest_p = subparsers.add_parser("ingest", help="Ingest a forensic evidence file")
+    ingest_p.add_argument("file", help="Path to evidence file (SQLite, APK, Plist, etc.)")
+    ingest_p.add_argument("--examiner", default="CLI Examiner", help="Examiner name")
+    ingest_p.add_argument("--case", default="CLI-CASE", help="Case identifier")
+
+    # Ingest NexusProxy
+    np_p = subparsers.add_parser("ingest-nexusproxy", help="Ingest NexusProxy-Mobile engagement package")
+    np_p.add_argument("--file", help="Path to engagement_*.zip (defaults to latest in /tmp/nexusproxy_exports)")
+    np_p.add_argument("--examiner", default="CLI Examiner")
+
+    # SQLite
+    sql_p = subparsers.add_parser("sqlite", help="Inspect an SQLite database")
+    sql_p.add_argument("db_file", help="Path to SQLite .db/.sqlite file")
+
+    # APK
+    apk_p = subparsers.add_parser("apk", help="Audit an Android APK package")
+    apk_p.add_argument("apk_file", help="Path to .apk file")
+
+    # iOS Backup
+    ios_p = subparsers.add_parser("ios-backup", help="Inspect an Apple iTunes backup directory")
+    ios_p.add_argument("backup_dir", help="Path to backup directory containing Info.plist & Manifest.db")
+
+    # Devices
+    subparsers.add_parser("devices", help="List connected Android devices via ADB")
+
+    args = parser.parse_args()
+
+    ingestor = EvidenceIngestor()
+    sqlite_inspector = SQLiteInspector()
+    android_parser = AndroidForensicsParser()
+    ios_parser = IOSForensicsParser()
+
+    if args.command == "ingest":
+        p = Path(args.file)
+        art = ingestor.ingest_file(p, examiner=args.examiner, case_id=args.case)
+        print("✓ Evidence Ingestion Successful")
+        print(f"Artifact ID : {art.artifact_id}")
+        print(f"File Name   : {art.file_name}")
+        print(f"Size        : {art.file_size_bytes} bytes")
+        print(f"SHA-256     : {art.sha256}")
+        print(f"MD5         : {art.md5}")
+        print(f"Status      : {art.integrity_status} (NIST SP 800-86 Compliant)")
+
+    elif args.command == "ingest-nexusproxy":
+        target = Path(args.file) if args.file else None
+        if not target:
+            exp_dir = Path("/tmp/nexusproxy_exports")
+            if exp_dir.exists():
+                zips = sorted(list(exp_dir.glob("engagement_*.zip")), key=os.path.getmtime, reverse=True)
+                if zips:
+                    target = zips[0]
+        if not target or not target.exists():
+            print("ERROR: No NexusProxy engagement bundle found.", file=sys.stderr)
+            sys.exit(1)
+
+        art, ver, events = ingestor.ingest_nexusproxy_bundle(target, examiner=args.examiner)
+        print("✓ NexusProxy Engagement Bundle Verified & Ingested")
+        print(f"Bundle File     : {art.file_name}")
+        print(f"Evidentiary Hash: {art.sha256}")
+        print(f"Total Files     : {ver['total_files']}")
+        print(f"Verified Files  : {ver['verified_files']}")
+        print(f"Timeline Events : {len(events)}")
+        print(f"Integrity Status: {art.integrity_status}")
+
+    elif args.command == "sqlite":
+        res = sqlite_inspector.inspect_database(Path(args.db_file))
+        print("✓ SQLite Database Forensic Overview")
+        print(f"File Name      : {res['file_name']} ({res['file_size']} bytes)")
+        print(f"WAL Present    : {'YES' if res['has_wal'] else 'NO'}")
+        print(f"Freelist Pages : {res['freelist_pages']}")
+        print(f"Total Tables   : {res['table_count']}")
+        print("\nTables:")
+        for t in res["tables"]:
+            print(f"  - {t['table_name']}: {t['row_count']} rows, {len(t['columns'])} columns")
+
+    elif args.command == "apk":
+        res = android_parser.parse_apk(Path(args.apk_file))
+        print("✓ APK Security & Forensic Audit")
+        print(f"File Name      : {res['file_name']}")
+        print(f"Debuggable     : {res['security_flags']['debuggable']}")
+        print(f"DEX Classes    : {len(res['dex_files'])}")
+        print(f"Dangerous Perms: {len(res['dangerous_permissions'])}")
+        for p in res["dangerous_permissions"]:
+            print(f"  [!] {p['permission']} -> {p['threat_description']} ({p['severity']})")
+
+    elif args.command == "ios-backup":
+        res = ios_parser.inspect_ios_backup(Path(args.backup_dir))
+        print("✓ iOS Backup Overview")
+        print(f"Device Name : {res['device_name']}")
+        print(f"Product     : {res['product_type']} (iOS {res['ios_version']})")
+        print(f"Serial/UDID : {res['serial_number']} / {res['udid']}")
+        print(f"Encrypted   : {res['is_encrypted']}")
+        print(f"Manifest.db : {'Present' if res['manifest_db_present'] else 'Absent'} ({res['total_files_in_manifest']} files mapped)")
+
+    elif args.command == "devices":
+        devs = android_parser.get_connected_devices()
+        print(f"Connected Android Testbeds ({len(devs)}):")
+        if not devs:
+            print("  (None detected via ADB)")
+        for d in devs:
+            print(f"  - Serial: {d['serial']} | State: {d['state']} | Model: {d['model']}")
+
+if __name__ == "__main__":
+    main()

@@ -1372,14 +1372,23 @@ class DuckDBWarehouse:
         if limit and "limit" not in cleaned.lower():
             cleaned += f" LIMIT {limit}"
 
-        if params:
-            res = self.conn.execute(cleaned, params).fetchall()
-        else:
-            res = self.conn.execute(cleaned).fetchall()
+        try:
+            if params:
+                cur = self.conn.execute(cleaned, params)
+            else:
+                cur = self.conn.execute(cleaned)
 
-        cols = [c[0] for c in self.conn.description] if self.conn.description else []
-        return {
-            "columns": cols,
-            "row_count": len(res),
-            "rows": [_format_row_dict(cols, row) for row in res]
-        }
+            cols = [c[0] for c in cur.description] if (cur and getattr(cur, "description", None)) else []
+            res = cur.fetchall() if cur else []
+            return {
+                "columns": cols,
+                "row_count": len(res),
+                "rows": [_format_row_dict(cols, row) for row in res]
+            }
+        except Exception as e:
+            return {
+                "columns": [],
+                "row_count": 0,
+                "rows": [],
+                "error": str(e)
+            }

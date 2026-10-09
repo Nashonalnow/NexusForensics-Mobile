@@ -29,6 +29,7 @@ from .bluetooth import BluetoothParser
 from .cell_tower import CellTowerParser
 from .media_intelligence import MediaIntelligenceParser
 from .messaging_metadata import MessagingAppMetadataParser
+from .universal_parser import UniversalFileParser
 
 from ..models import ArtifactModel, EventModel, ParseOutput
 
@@ -53,7 +54,10 @@ PARSERS: List[BaseArtifactParser] = [
     BluetoothParser(),
     CellTowerParser(),
     MediaIntelligenceParser(),
-    MessagingAppMetadataParser()
+    MessagingAppMetadataParser(),
+
+    # Universal Evidence Converter & Fallback Carving Engine
+    UniversalFileParser()
 ]
 
 class ParserRegistry:

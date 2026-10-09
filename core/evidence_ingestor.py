@@ -40,16 +40,29 @@ class EvidenceIngestor:
         self.coc_records: List[ChainOfCustodyRecord] = []
 
     def compute_hashes(self, file_path: Path) -> Tuple[str, str, str]:
-        """Calculates authentic SHA-256, SHA-1, and MD5 hashes of a target file."""
+        """Calculates authentic SHA-256, SHA-1, and MD5 hashes of a target file or directory tree."""
         sha256 = hashlib.sha256()
         sha1 = hashlib.sha1()
         md5 = hashlib.md5()
 
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(65536), b""):
-                sha256.update(chunk)
-                sha1.update(chunk)
-                md5.update(chunk)
+        if file_path.is_dir():
+            for child in sorted(file_path.rglob('*')):
+                if child.is_file() and not child.name.startswith('.'):
+                    rel = str(child.relative_to(file_path)).encode('utf-8')
+                    sha256.update(rel)
+                    sha1.update(rel)
+                    md5.update(rel)
+                    with open(child, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            sha256.update(chunk)
+                            sha1.update(chunk)
+                            md5.update(chunk)
+        else:
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    sha256.update(chunk)
+                    sha1.update(chunk)
+                    md5.update(chunk)
 
         return sha256.hexdigest(), sha1.hexdigest(), md5.hexdigest()
 
@@ -62,30 +75,39 @@ class EvidenceIngestor:
         metadata: Optional[Dict[str, Any]] = None
     ) -> EvidenceArtifact:
         """
-        Ingests a forensic file artifact, hashes it, and logs initial Chain of Custody.
+        Ingests a forensic file artifact or directory container, hashes it, and logs initial Chain of Custody.
         """
         path = Path(file_path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"Evidence file not found: {path}")
 
-        file_size = path.stat().st_size
+        if path.is_dir():
+            file_size = sum(f.stat().st_size for f in path.rglob('*') if f.is_file())
+            mime = "inode/directory"
+        else:
+            file_size = path.stat().st_size
+            ext = path.suffix.lower()
+            if ext in [".db", ".sqlite", ".sqlite3"]:
+                mime = "application/x-sqlite3"
+            elif ext in [".apk"]:
+                mime = "application/vnd.android.package-archive"
+            elif ext in [".plist"]:
+                mime = "application/x-plist"
+            elif ext in [".zip"]:
+                mime = "application/zip"
+            elif ext in [".tar", ".ab"]:
+                mime = "application/x-tar"
+            elif ext in [".json", ".jsonl"]:
+                mime = "application/json"
+            elif ext in [".csv", ".tsv"]:
+                mime = "text/csv"
+            elif ext in [".log", ".txt"]:
+                mime = "text/plain"
+            else:
+                mime = "application/octet-stream"
+
         sha256_hash, sha1_hash, md5_hash = self.compute_hashes(path)
         artifact_id = f"EV-{int(time.time()*1000)}-{sha256_hash[:8]}"
-
-        # Infer mime type / category
-        ext = path.suffix.lower()
-        if ext in [".db", ".sqlite", ".sqlite3"]:
-            mime = "application/x-sqlite3"
-        elif ext in [".apk"]:
-            mime = "application/vnd.android.package-archive"
-        elif ext in [".plist"]:
-            mime = "application/x-plist"
-        elif ext in [".zip"]:
-            mime = "application/zip"
-        elif ext in [".tar", ".ab"]:
-            mime = "application/x-tar"
-        else:
-            mime = "application/octet-stream"
 
         artifact = EvidenceArtifact(
             artifact_id=artifact_id,

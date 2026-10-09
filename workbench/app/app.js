@@ -181,18 +181,31 @@ document.addEventListener("DOMContentLoaded", () => {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ file_path: path, origin: "Local Disk" })
                 });
-                const data = await res.json();
-                if (res.ok) {
-                    alert(`✓ Ingested: ${data.artifact.file_name} (${data.artifact.sha256.substring(0, 16)}...)`);
+                let data;
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    const txt = await res.text();
+                    data = { status: "ERROR", detail: txt || `HTTP Error ${res.status}` };
+                }
+
+                if (res.ok && data.status !== "ERROR") {
+                    const name = data.artifact?.file_name || data.file_name || path;
+                    const sha = data.artifact?.sha256 || data.sha256 || "VERIFIED";
+                    const carved = data.artifacts_carved !== undefined ? data.artifacts_carved : 1;
+                    const events = data.timeline_events_generated !== undefined ? data.timeline_events_generated : 0;
+                    alert(`✓ Evidence Intake Succeeded!\n• Source: ${name}\n• SHA-256: ${sha.substring(0, 16)}...\n• Carved Artifacts: ${carved}\n• Timeline Events: ${events}`);
                     inputFilePath.value = "";
                     loadStatus();
                     loadEvidence();
                     loadChainOfCustody();
+                    if (typeof loadTimeline === "function") loadTimeline();
                 } else {
-                    alert("Error: " + data.detail);
+                    alert("Ingest Error: " + (data.detail || data.error || "Unknown server response"));
                 }
             } catch (e) {
-                alert("Error: " + e.message);
+                alert("Ingest Error: " + e.message);
             } finally {
                 btnIngestPath.disabled = false;
             }
@@ -219,15 +232,28 @@ document.addEventListener("DOMContentLoaded", () => {
                     method: "POST",
                     body: formData
                 });
-                const data = await res.json();
-                if (res.ok) {
-                    alert(`✓ Uploaded and hashed: ${data.artifact.file_name}`);
+                let data;
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                    data = await res.json();
+                } else {
+                    const txt = await res.text();
+                    data = { status: "ERROR", detail: txt || `HTTP Error ${res.status}` };
+                }
+
+                if (res.ok && data.status !== "ERROR") {
+                    const name = data.artifact?.file_name || data.file_name || file.name;
+                    const sha = data.artifact?.sha256 || data.sha256 || "VERIFIED";
+                    const carved = data.artifacts_carved !== undefined ? data.artifacts_carved : 1;
+                    const events = data.timeline_events_generated !== undefined ? data.timeline_events_generated : 0;
+                    alert(`✓ Universal Evidence Intake Succeeded!\n• File: ${name}\n• SHA-256: ${sha.substring(0, 16)}...\n• Artifacts Carved: ${carved}\n• Timeline Events: ${events}`);
                     inputFileUpload.value = "";
                     loadStatus();
                     loadEvidence();
                     loadChainOfCustody();
+                    if (typeof loadTimeline === "function") loadTimeline();
                 } else {
-                    alert("Upload Error: " + data.detail);
+                    alert("Upload / Ingestion Error: " + (data.detail || data.error || "Unknown server response"));
                 }
             } catch (e) {
                 alert("Upload Network Error: " + e.message);

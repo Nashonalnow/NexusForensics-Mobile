@@ -24,6 +24,9 @@ venv/
 *.ipa
 *.db-wal
 *.db-shm
+*.duckdb*
+/workbench/cases/
+/cases/
 
 # OS & Editor Files
 .DS_Store

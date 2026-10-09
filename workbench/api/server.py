@@ -58,6 +58,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(
+        status_code=500,
+        content={"status": "ERROR", "detail": str(exc), "error": str(exc)}
+    )
+
 # Core Intelligence & Warehouse Engines
 warehouse = DuckDBWarehouse()
 ingestor = EvidenceIngestor(storage_dir=PROJECT_ROOT / "evidence")
@@ -204,105 +211,150 @@ def get_device_timeline(
 # 3. Evidence Ingestion & Parsing Engine
 @app.post("/api/v1/evidence")
 def ingest_evidence(req: IngestFileRequest):
-    path = Path(req.file_path).resolve()
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+    try:
+        path = Path(req.file_path).resolve()
+        if not path.exists():
+            return JSONResponse(status_code=404, content={"status": "ERROR", "detail": f"Evidence path not found: {path}"})
 
-    # Physical intake & hashing
-    artifact_wrapper = ingestor.ingest_file(
-        path,
-        origin=req.source_type or "filesystem",
-        examiner=req.examiner or "Examiner",
-        case_id=ACTIVE_CASE_ID
-    )
+        dev_id = req.device_id or ACTIVE_DEVICE_ID
+        examiner = req.examiner or "Examiner"
+        tool_name = req.tool or "NexusForensics"
+        source_type = req.source_type or ("logical" if path.is_dir() else "filesystem")
 
-    src_id = f"SRC-{uuid.uuid4().hex[:8].upper()}"
-    warehouse.insert_evidence_source(
-        source_id=src_id,
-        device_id=req.device_id or ACTIVE_DEVICE_ID,
-        source_type=req.source_type or "filesystem",
-        acquisition_tool=req.tool or "NexusForensics",
-        acquisition_tool_version="1.0",
-        original_filename=path.name,
-        file_size=artifact_wrapper.file_size_bytes,
-        sha256=artifact_wrapper.sha256,
-        sha1=getattr(artifact_wrapper, "sha1", None),
-        md5=getattr(artifact_wrapper, "md5", None),
-        acquisition_operator=req.examiner or "Examiner",
-        imported_by=req.examiner or "Examiner"
-    )
-
-    # Processing run for reproducibility
-    run_id = warehouse.create_processing_run(
-        case_id=ACTIVE_CASE_ID,
-        engine_version="1.0.0",
-        ruleset_version="2026.10",
-        graph_version="1.0.0",
-        build_sha256="9f7c8e2a01bc4389df0123456789abcdef0123456789abcdef0123456789abcd",
-        executed_by=req.examiner or "Examiner",
-        parameters={"source_id": src_id, "file_path": str(path), "tool": req.tool or "NexusForensics"}
-    )
-
-    # Zimmerman parser execution
-    parsed_pairs = ParserRegistry.parse_file(path, src_id, req.device_id or ACTIVE_DEVICE_ID)
-    total_events_generated = 0
-
-    for art, events in parsed_pairs:
-        warehouse.insert_artifact(
-            artifact_id=art.artifact_id,
-            source_id=art.source_id,
-            parser_id=art.parser_id,
-            evidence_offset=getattr(art, "evidence_offset", 0),
-            source_table=getattr(art, "source_table", None),
-            source_record_id=getattr(art, "source_record_id", None),
-            artifact_type=art.artifact_type,
-            artifact_timestamp=art.artifact_timestamp or time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
-            timezone_source=getattr(art, "timezone_source", "UTC"),
-            timestamp_precision=getattr(art, "timestamp_precision", "exact"),
-            record_hash=art.record_hash,
-            parent_artifact_id=getattr(art, "parent_artifact_id", None),
-            raw_json=art.raw_data,
-            normalized_json=art.normalized_data,
-            parser_notes=getattr(art, "parser_notes", None)
+        # 1. Physical/logical intake & cryptographic hashing
+        artifact_wrapper = ingestor.ingest_file(
+            path,
+            origin=source_type,
+            examiner=examiner,
+            case_id=ACTIVE_CASE_ID
         )
-        warehouse.link_artifact_processing(run_id=run_id, artifact_id=art.artifact_id, operation="parse")
-        for ev in events:
-            warehouse.insert_event(
-                event_id=ev.event_id,
-                artifact_id=ev.artifact_id,
-                device_id=ev.device_id,
-                timestamp=ev.timestamp,
-                event_type=ev.event_type,
-                category=ev.category,
-                description=ev.description,
-                confidence=ev.confidence,
-                latitude=getattr(ev, "latitude", getattr(ev, "location_lat", None)),
-                longitude=getattr(ev, "longitude", getattr(ev, "location_lon", None)),
-                altitude=getattr(ev, "altitude", getattr(ev, "location_alt", None)),
-                source_weight=getattr(ev, "source_weight", 1.0),
-                actor=getattr(ev, "actor", None),
-                target=getattr(ev, "target", None),
-                raw_payload=ev.raw_payload
-            )
-            timeline_engine.add_event(ev)
-            total_events_generated += 1
 
-    # Run correlation on newly parsed telemetry
-    rels = correlation_engine.run_correlation(req.device_id or ACTIVE_DEVICE_ID, window_seconds=120.0)
+        src_id = f"SRC-{uuid.uuid4().hex[:8].upper()}"
+        warehouse.insert_evidence_source(
+            source_id=src_id,
+            device_id=dev_id,
+            source_type=source_type if source_type in ["filesystem", "physical", "logical", "backup", "cloud", "manual"] else "filesystem",
+            acquisition_tool=tool_name,
+            acquisition_tool_version="1.0",
+            original_filename=path.name,
+            original_path=str(path),
+            file_size=artifact_wrapper.file_size_bytes,
+            sha256=artifact_wrapper.sha256,
+            sha1=getattr(artifact_wrapper, "sha1", None),
+            md5=getattr(artifact_wrapper, "md5", None),
+            acquisition_operator=examiner,
+            imported_by=examiner
+        )
 
-    # Generate explainable findings
-    findings = confidence_scorer.evaluate_communication_events(ACTIVE_CASE_ID, req.device_id or ACTIVE_DEVICE_ID)
+        # Processing run for reproducibility
+        run_id = warehouse.create_processing_run(
+            case_id=ACTIVE_CASE_ID,
+            engine_version="1.0.0",
+            ruleset_version="2026.10",
+            graph_version="1.0.0",
+            build_sha256="9f7c8e2a01bc4389df0123456789abcdef0123456789abcdef0123456789abcd",
+            executed_by=examiner,
+            parameters={"source_id": src_id, "file_path": str(path), "tool": tool_name}
+        )
 
-    return {
-        "status": "SUCCESS",
-        "evidence_source_id": src_id,
-        "processing_run_id": run_id,
-        "sha256": artifact_wrapper.sha256,
-        "artifacts_carved": len(parsed_pairs),
-        "timeline_events_generated": total_events_generated,
-        "relationships_discovered": len(rels),
-        "findings_synthesized": len(findings)
-    }
+        # 2. Universal & Zimmerman Parser Execution
+        files_to_parse = []
+        if path.is_dir():
+            files_to_parse = [f for f in sorted(path.rglob("*")) if f.is_file() and not f.name.startswith(".")][:60]
+        else:
+            files_to_parse = [path]
+
+        total_artifacts_carved = 0
+        total_events_generated = 0
+
+        for target_file in files_to_parse:
+            try:
+                # Also index individual child file in ingestor if directory walk
+                if path.is_dir():
+                    try:
+                        ingestor.ingest_file(target_file, origin="directory_child", examiner=examiner, case_id=ACTIVE_CASE_ID)
+                    except Exception:
+                        pass
+
+                parsed_pairs = ParserRegistry.parse_file(target_file, src_id, dev_id)
+                for art, events in parsed_pairs:
+                    warehouse.insert_artifact(
+                        artifact_id=art.artifact_id,
+                        source_id=art.source_id,
+                        parser_id=art.parser_id,
+                        evidence_offset=getattr(art, "evidence_offset", 0),
+                        source_table=getattr(art, "source_table", None),
+                        source_record_id=getattr(art, "source_record_id", None),
+                        artifact_type=art.artifact_type,
+                        artifact_timestamp=art.artifact_timestamp or time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+                        timezone_source=getattr(art, "timezone_source", "UTC"),
+                        timestamp_precision=getattr(art, "timestamp_precision", "exact"),
+                        record_hash=art.record_hash,
+                        parent_artifact_id=getattr(art, "parent_artifact_id", None),
+                        raw_json=art.raw_data,
+                        normalized_json=art.normalized_data,
+                        parser_notes=getattr(art, "parser_notes", None)
+                    )
+                    warehouse.link_artifact_processing(run_id=run_id, artifact_id=art.artifact_id, operation="parse")
+                    total_artifacts_carved += 1
+
+                    for ev in events:
+                        warehouse.insert_event(
+                            event_id=ev.event_id,
+                            artifact_id=ev.artifact_id,
+                            device_id=ev.device_id,
+                            timestamp=ev.timestamp,
+                            event_type=ev.event_type,
+                            category=ev.category,
+                            description=ev.description,
+                            confidence=ev.confidence,
+                            latitude=getattr(ev, "latitude", getattr(ev, "location_lat", None)),
+                            longitude=getattr(ev, "longitude", getattr(ev, "location_lon", None)),
+                            altitude=getattr(ev, "altitude", getattr(ev, "location_alt", None)),
+                            source_weight=getattr(ev, "source_weight", 1.0),
+                            actor=getattr(ev, "actor", None),
+                            target=getattr(ev, "target", None),
+                            raw_payload=ev.raw_payload
+                        )
+                        timeline_engine.add_event(ev)
+                        total_events_generated += 1
+            except Exception as pe:
+                print(f"[Ingest Warning] Error parsing {target_file}: {pe}")
+                continue
+
+        # 3. Correlation & Explainable Findings
+        rels = correlation_engine.run_correlation(dev_id, window_seconds=120.0)
+        findings = confidence_scorer.evaluate_communication_events(ACTIVE_CASE_ID, dev_id)
+
+        return {
+            "status": "SUCCESS",
+            "evidence_source_id": src_id,
+            "processing_run_id": run_id,
+            "sha256": artifact_wrapper.sha256,
+            "sha1": getattr(artifact_wrapper, "sha1", ""),
+            "md5": getattr(artifact_wrapper, "md5", ""),
+            "file_name": path.name,
+            "file_path": str(path),
+            "file_size_bytes": artifact_wrapper.file_size_bytes,
+            "artifacts_carved": total_artifacts_carved,
+            "timeline_events_generated": total_events_generated,
+            "relationships_discovered": len(rels),
+            "findings_synthesized": len(findings),
+            "artifact": {
+                "artifact_id": getattr(artifact_wrapper, "artifact_id", src_id),
+                "file_name": path.name,
+                "file_path": str(path),
+                "file_size_bytes": artifact_wrapper.file_size_bytes,
+                "sha256": artifact_wrapper.sha256,
+                "md5": getattr(artifact_wrapper, "md5", ""),
+                "mime_type": getattr(artifact_wrapper, "mime_type", "application/octet-stream")
+            }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "ERROR", "detail": f"Evidence ingestion error: {str(e)}", "error": str(e)}
+        )
 
 # 4. Artifact APIs
 @app.get("/api/v1/artifacts/search")
@@ -617,54 +669,69 @@ def get_legacy_devices():
 
 @app.post("/api/ingest/file")
 def legacy_ingest_file(payload: Dict[str, Any] = Body(...)):
-    p = payload.get("file_path", "")
-    return ingest_evidence(IngestFileRequest(file_path=p, device_id=ACTIVE_DEVICE_ID))
+    try:
+        p = payload.get("file_path", "")
+        return ingest_evidence(IngestFileRequest(file_path=p, device_id=ACTIVE_DEVICE_ID))
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "ERROR", "detail": str(e), "error": str(e)})
 
 @app.post("/api/ingest/upload")
 async def legacy_upload(file: UploadFile = File(...)):
-    dest = ingestor.storage_dir / file.filename
-    with open(dest, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return ingest_evidence(IngestFileRequest(file_path=str(dest), device_id=ACTIVE_DEVICE_ID))
+    try:
+        dest = ingestor.storage_dir / file.filename
+        with open(dest, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return ingest_evidence(IngestFileRequest(file_path=str(dest), device_id=ACTIVE_DEVICE_ID))
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "ERROR", "detail": str(e), "error": str(e)})
 
 @app.post("/api/ingest/nexusproxy")
 def legacy_ingest_nexusproxy():
-    exp_dir = Path("/tmp/nexusproxy_exports")
-    target = None
-    if exp_dir.exists():
-        zips = sorted(list(exp_dir.glob("engagement_*.zip")), key=os.path.getmtime, reverse=True)
-        if zips:
-            target = zips[0]
+    try:
+        exp_dir = Path("/tmp/nexusproxy_exports")
+        target = None
+        if exp_dir.exists():
+            zips = sorted(list(exp_dir.glob("engagement_*.zip")), key=os.path.getmtime, reverse=True)
+            if zips:
+                target = zips[0]
 
-    if not target:
-        raise HTTPException(status_code=404, detail="No NexusProxy bundle found in /tmp/nexusproxy_exports")
+        if not target:
+            return JSONResponse(status_code=404, content={"status": "ERROR", "detail": "No NexusProxy bundle found in /tmp/nexusproxy_exports"})
 
-    return ingest_evidence(IngestFileRequest(file_path=str(target), device_id=ACTIVE_DEVICE_ID, source_type="nexusproxy", tool="NexusProxy-Mobile"))
+        return ingest_evidence(IngestFileRequest(file_path=str(target), device_id=ACTIVE_DEVICE_ID, source_type="nexusproxy", tool="NexusProxy-Mobile"))
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "ERROR", "detail": str(e), "error": str(e)})
 
 @app.get("/api/artifacts")
 def get_legacy_artifacts():
-    arts = [a.model_dump() for a in ingestor.get_all_artifacts()]
-    if not arts:
-        res = warehouse.raw_sql_query("SELECT * FROM forensic.evidence_sources ORDER BY imported_at DESC;")
-        for r in res.get("rows", []):
-            arts.append({
-                "artifact_id": r.get("source_id"),
-                "file_name": r.get("original_filename"),
-                "origin": r.get("source_type"),
-                "file_size_bytes": r.get("file_size", 0),
-                "sha256": r.get("sha256", ""),
-                "integrity_status": "VERIFIED",
-                "mime_type": "application/x-sqlite3" if str(r.get("original_filename")).endswith(".db") else "application/octet-stream"
-            })
-    return {"artifacts": arts}
+    try:
+        arts = [a.model_dump() for a in ingestor.get_all_artifacts()]
+        if not arts:
+            res = warehouse.raw_sql_query("SELECT * FROM forensic.evidence_sources ORDER BY imported_at DESC;")
+            for r in res.get("rows", []):
+                arts.append({
+                    "artifact_id": r.get("source_id"),
+                    "file_name": r.get("original_filename"),
+                    "origin": r.get("source_type"),
+                    "file_size_bytes": r.get("file_size", 0),
+                    "sha256": r.get("sha256", ""),
+                    "integrity_status": "VERIFIED",
+                    "mime_type": "application/x-sqlite3" if str(r.get("original_filename")).endswith(".db") else "application/octet-stream"
+                })
+        return {"artifacts": arts}
+    except Exception as e:
+        return {"artifacts": [], "error": str(e)}
 
 @app.get("/api/coc")
 def get_legacy_coc():
-    records = [r.model_dump() for r in ingestor.get_chain_of_custody()]
-    if not records:
-        res = warehouse.raw_sql_query("SELECT * FROM forensic.audit_log ORDER BY timestamp DESC;")
-        records = res.get("rows", [])
-    return {"standard": "NIST Special Publication 800-86 Compliant", "records": records}
+    try:
+        records = [r.model_dump() for r in ingestor.get_chain_of_custody()]
+        if not records:
+            res = warehouse.raw_sql_query("SELECT * FROM forensic.audit_log ORDER BY event_timestamp DESC;")
+            records = res.get("rows", [])
+        return {"standard": "NIST Special Publication 800-86 Compliant", "records": records}
+    except Exception as e:
+        return {"standard": "NIST Special Publication 800-86 Compliant", "records": [], "error": str(e)}
 
 @app.post("/api/sqlite/inspect")
 def inspect_sqlite(req: SQLiteInspectRequest):

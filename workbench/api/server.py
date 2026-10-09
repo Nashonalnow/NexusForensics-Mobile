@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -725,5 +725,14 @@ def legacy_export_report():
 
 # Mount static frontend
 STATIC_DIR = PROJECT_ROOT / "workbench" / "app"
+
+@app.get("/")
+def serve_index():
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    raise HTTPException(status_code=404, detail="Index not found")
+
 if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static_dir")
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")

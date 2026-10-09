@@ -144,7 +144,127 @@ def test_fastapi_endpoints():
     report_data = res.json()
     assert report_data["status"] == "SUCCESS"
     assert len(report_data["sha256"]) == 64
-    print("✓ FastAPI endpoints validated!")
+
+    # 4. V1 REST API: Warehouse Raw SQL Query
+    res = client.post("/api/v1/warehouse/query", json={"sql": "SELECT 42 as answer, 'DuckDB Columnar' as engine;"})
+    assert res.status_code == 200
+    w_data = res.json()
+    assert w_data["status"] == "SUCCESS"
+    assert w_data["result"]["rows"][0]["answer"] == 42
+    assert w_data["result"]["rows"][0]["engine"] == "DuckDB Columnar"
+
+    # 5. V1 REST API: Behavioral Replay ("Digital Witness")
+    res = client.get("/api/v1/replay")
+    assert res.status_code == 200
+    rep = res.json()
+    assert "snapshots" in rep
+    assert "total_snapshots" in rep
+
+    # 6. V1 REST API: Correlation Workflow
+    res = client.post("/api/v1/correlation/run", json={"window_seconds": 120.0})
+    assert res.status_code == 200
+    assert res.json()["status"] == "SUCCESS"
+
+    # 7. V1 REST API: Explainable Findings
+    res = client.get("/api/v1/findings")
+    assert res.status_code == 200
+    assert "findings" in res.json()
+
+    print("✓ FastAPI endpoints & V1 DFIR services validated!")
+
+def test_zimmerman_parsers():
+    from core.parsers.android_sms import AndroidSMSParser
+    from core.parsers.android_calllog import AndroidCallLogParser
+    from core.parsers.ios_knowledgec import IOSKnowledgeCParser
+    from core.parsers.ios_sms import IOSSMSParser
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # 1. Android SMS Database
+        sms_db = Path(tmpdir) / "mmssms.db"
+        conn = sqlite3.connect(sms_db)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE sms (
+                _id INTEGER PRIMARY KEY,
+                address TEXT,
+                body TEXT,
+                date INTEGER,
+                type INTEGER,
+                read INTEGER
+            );
+        """)
+        ts_ms = int(time.time() * 1000)
+        c.execute("INSERT INTO sms VALUES (1, '+15552345678', 'Meeting confirmed at 14:00', ?, 1, 1)", (ts_ms,))
+        conn.commit()
+        conn.close()
+
+        p = AndroidSMSParser()
+        assert p.can_parse(sms_db)
+        pairs = p.parse(sms_db, "SRC-TEST-SMS", "DEV-TEST")
+        assert len(pairs) == 1
+        art, events = pairs[0]
+        assert art.artifact_type in ["sms", "sms_message"]
+        assert len(events) == 1
+
+        assert events[0].event_type == "message_received"
+        assert "+15552345678" in events[0].description
+
+        # 2. Android Call Log Database
+        call_db = Path(tmpdir) / "calllog.db"
+        conn = sqlite3.connect(call_db)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE calls (
+                _id INTEGER PRIMARY KEY,
+                number TEXT,
+                date INTEGER,
+                duration INTEGER,
+                type INTEGER
+            );
+        """)
+        c.execute("INSERT INTO calls VALUES (1, '+15559876543', ?, 180, 2)", (ts_ms,))
+        conn.commit()
+        conn.close()
+
+        cp = AndroidCallLogParser()
+        assert cp.can_parse(call_db)
+        cp_pairs = cp.parse(call_db, "SRC-TEST-CALL", "DEV-TEST")
+        assert len(cp_pairs) == 1
+        assert cp_pairs[0][0].artifact_type == "call_log"
+        assert cp_pairs[0][1][0].event_type == "call_started"
+        assert cp_pairs[0][1][0].raw_payload["call_type"] == "OUTGOING"
+
+        # 3. iOS KnowledgeC DB
+        kc_db = Path(tmpdir) / "knowledgeC.db"
+        conn = sqlite3.connect(kc_db)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE ZOBJECT (
+                Z_PK INTEGER PRIMARY KEY,
+                ZSTREAMNAME TEXT,
+                ZSTARTDATE REAL,
+                ZENDDATE REAL,
+                ZVALUESTRING TEXT,
+                ZVALUEINTEGER INTEGER
+            );
+        """)
+        # Cocoa epoch offset (seconds since 2001-01-01)
+        cocoa_now = time.time() - 978307200
+        c.execute("INSERT INTO ZOBJECT VALUES (1, '/app/inFocus', ?, ?, 'com.apple.mobilesms', NULL)", (cocoa_now - 10, cocoa_now))
+        c.execute("INSERT INTO ZOBJECT VALUES (2, '/device/isLocked', ?, ?, NULL, 0)", (cocoa_now - 60, cocoa_now))
+        conn.commit()
+        conn.close()
+
+        kcp = IOSKnowledgeCParser()
+        assert kcp.can_parse(kc_db)
+        kc_pairs = kcp.parse(kc_db, "SRC-TEST-KC", "DEV-TEST")
+        assert len(kc_pairs) == 2
+        types = [ev[0].event_type for _, ev in kc_pairs]
+        assert "app_opened" in types
+        assert "unlock" in types
+
+
+        print("✓ Zimmerman-style forensic parsers validated!")
 
 if __name__ == "__main__":
     print("Running NexusForensics Mobile™ Verification Test Suite...")
@@ -153,4 +273,6 @@ if __name__ == "__main__":
     test_plist_decoding()
     test_threat_ioc_scanner()
     test_fastapi_endpoints()
+    test_zimmerman_parsers()
     print("\n🎉 ALL TESTS PASSED EMPIRICALLY (100% RFC & NIST SP 800-86 Compliant)")
+

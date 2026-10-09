@@ -431,3 +431,261 @@ body {
     justify-content: flex-end;
     gap: 8px;
 }
+
+/* ==========================================================================
+   Behavioral Replay Terminal ("Digital Witness") Styles
+   ========================================================================== */
+.replay-scrubber-panel {
+    background: #080d16;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.scrubber-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.scrubber-slider {
+    flex: 1;
+    height: 8px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: #1e293b;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+}
+
+.scrubber-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(0, 210, 255, 0.8);
+    cursor: pointer;
+    border: 2px solid #080d16;
+}
+
+.device-telemetry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.sensor-card {
+    background: #0a1120;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px;
+    position: relative;
+    overflow: hidden;
+}
+
+.sensor-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent-cyan);
+    opacity: 0.7;
+}
+
+.sensor-label {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+}
+
+.sensor-value {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #f8fafc;
+    font-family: var(--font-mono);
+}
+
+.state-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.state-unlocked { background: rgba(0, 245, 155, 0.15); color: var(--accent-green); border: 1px solid rgba(0,245,155,0.3); }
+.state-locked { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239,68,68,0.3); }
+.state-online { background: rgba(0, 210, 255, 0.15); color: var(--accent-cyan); border: 1px solid rgba(0,210,255,0.3); }
+
+/* ==========================================================================
+   Temporal Graph Styles
+   ========================================================================== */
+.graph-flow-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.graph-edge-row {
+    background: #0c1424;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 16px;
+    transition: border-color 0.2s;
+}
+
+.graph-edge-row:hover {
+    border-color: var(--accent-cyan);
+}
+
+.node-box {
+    background: #080d16;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.node-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #f8fafc;
+    margin-bottom: 2px;
+}
+
+.node-meta {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.edge-connector {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.edge-pill {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+}
+
+.edge-preceded { background: rgba(0, 210, 255, 0.15); color: var(--accent-cyan); }
+.edge-supports { background: rgba(0, 245, 155, 0.15); color: var(--accent-green); }
+.edge-usedapp { background: rgba(168, 85, 247, 0.15); color: var(--accent-purple); }
+.edge-contradicts { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.4); }
+
+/* ==========================================================================
+   Explainable Findings & Court Defense Breakdown
+   ========================================================================== */
+.finding-item-card {
+    background: #0c1424;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.finding-item-card:hover {
+    border-color: var(--accent-cyan);
+    transform: translateY(-1px);
+}
+
+.score-pill-pos {
+    background: rgba(0, 245, 155, 0.15);
+    color: var(--accent-green);
+    border: 1px solid rgba(0, 245, 155, 0.3);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.score-pill-neg {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--accent-red);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.court-testimony-box {
+    background: #050911;
+    border-left: 3px solid var(--accent-cyan);
+    padding: 14px 18px;
+    border-radius: 0 6px 6px 0;
+    font-style: italic;
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    margin: 12px 0;
+}
+
+/* ==========================================================================
+   DuckDB Columnar Warehouse Terminal
+   ========================================================================== */
+.sql-query-editor {
+    width: 100%;
+    min-height: 120px;
+    background: #080d16;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: #00f59b;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    padding: 12px;
+    resize: vertical;
+    outline: none;
+}
+
+.sql-query-editor:focus {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 8px rgba(0, 210, 255, 0.2);
+}
+
+.query-preset-bar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.preset-chip {
+    background: #0c1424;
+    border: 1px solid var(--border-color);
+    color: #cbd5e1;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.preset-chip:hover {
+    background: #17243c;
+    color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+}
+

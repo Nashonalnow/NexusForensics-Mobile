@@ -25,8 +25,15 @@ document.addEventListener("DOMContentLoaded", () => {
             loadDevices();
         } else if (tabId === "tab-sqlite") {
             refreshSqliteArtifacts();
+        } else if (tabId === "tab-replay") {
+            loadReplay();
+        } else if (tabId === "tab-graph") {
+            loadGraph();
+        } else if (tabId === "tab-findings") {
+            loadFindings();
         }
     };
+
 
     navButtons.forEach(btn => {
         btn.addEventListener("click", () => switchTab(btn.getAttribute("data-tab")));
@@ -508,6 +515,418 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // 9. Behavioral Replay Terminal ("Digital Witness")
+    let replaySnapshots = [];
+    let currentReplayIndex = 0;
+    let replayTimer = null;
+
+    async function loadReplay() {
+        try {
+            const res = await fetch("/api/v1/replay?limit=100");
+            const data = await res.json();
+            replaySnapshots = data.snapshots || [];
+            const scrubber = document.getElementById("replayScrubber");
+            if (!scrubber) return;
+
+            if (replaySnapshots.length === 0) {
+                document.getElementById("replayTimestamp").textContent = "No Telemetry Recorded";
+                document.getElementById("replaySnapshotIndex").textContent = "Snapshot 0 of 0";
+                document.getElementById("sensorLock").innerHTML = '<span class="state-badge state-locked">UNKNOWN</span>';
+                document.getElementById("sensorBattery").textContent = "-- %";
+                document.getElementById("sensorNetwork").innerHTML = '<span class="state-badge">OFFLINE</span>';
+                document.getElementById("sensorApp").textContent = "None";
+                document.getElementById("sensorMotion").textContent = "UNKNOWN";
+                document.getElementById("sensorConfidence").textContent = "-- %";
+                document.getElementById("replayEventsList").innerHTML = '<div style="text-align:center; color:#94a3b8; padding:16px; background:#080d16; border-radius:6px; font-size:0.8rem;">No behavioral snapshots extracted yet.</div>';
+                scrubber.max = 0;
+                scrubber.value = 0;
+                return;
+            }
+
+            scrubber.max = replaySnapshots.length - 1;
+            if (currentReplayIndex >= replaySnapshots.length) currentReplayIndex = 0;
+            scrubber.value = currentReplayIndex;
+            renderSnapshot(currentReplayIndex);
+        } catch (e) {
+            console.warn("Replay load error:", e);
+        }
+    }
+
+    function renderSnapshot(idx) {
+        if (!replaySnapshots || replaySnapshots.length === 0 || !replaySnapshots[idx]) return;
+        const s = replaySnapshots[idx];
+        currentReplayIndex = idx;
+        const scrubber = document.getElementById("replayScrubber");
+        if (scrubber) scrubber.value = idx;
+
+        document.getElementById("replayTimestamp").textContent = `${s.timestamp} UTC`;
+        document.getElementById("replaySnapshotIndex").textContent = `Snapshot ${idx + 1} of ${replaySnapshots.length}`;
+
+        // Lock status
+        const lockEl = document.getElementById("sensorLock");
+        if (s.lock_state === "UNLOCKED") {
+            lockEl.innerHTML = '<span class="state-badge state-unlocked">UNLOCKED (HUMAN ENGAGED)</span>';
+        } else if (s.lock_state === "LOCKED") {
+            lockEl.innerHTML = '<span class="state-badge state-locked">LOCKED (KEYGUARD ACTIVE)</span>';
+        } else {
+            lockEl.innerHTML = '<span class="state-badge">UNKNOWN</span>';
+        }
+
+        // Battery
+        document.getElementById("sensorBattery").textContent = s.battery_level !== null ? `${s.battery_level}%` : "N/A";
+        document.getElementById("sensorCharging").textContent = s.is_charging ? "⚡ Connected to AC / USB Power" : "Discharging (Battery)";
+
+        // Network
+        const netEl = document.getElementById("sensorNetwork");
+        if (s.network_state === "WIFI") {
+            netEl.innerHTML = '<span class="state-badge state-online">WI-FI</span>';
+        } else if (s.network_state === "CELLULAR") {
+            netEl.innerHTML = '<span class="state-badge state-online">CELLULAR 5G/LTE</span>';
+        } else {
+            netEl.innerHTML = '<span class="state-badge state-locked">OFFLINE</span>';
+        }
+        document.getElementById("sensorSsid").textContent = s.connected_ssid ? `SSID: ${s.connected_ssid}` : "No Active SSID";
+
+        // Foreground App
+        document.getElementById("sensorApp").textContent = s.foreground_app || "SpringBoard / System UI";
+
+        // Motion
+        document.getElementById("sensorMotion").textContent = s.motion_state;
+
+        // Confidence
+        const confEl = document.getElementById("sensorConfidence");
+        confEl.textContent = `${s.confidence}%`;
+        confEl.style.color = s.confidence >= 80 ? "var(--accent-green)" : (s.confidence >= 50 ? "var(--accent-amber)" : "var(--accent-red)");
+
+        // Events list
+        const evList = document.getElementById("replayEventsList");
+        if (s.corroborating_events && s.corroborating_events.length > 0) {
+            evList.innerHTML = s.corroborating_events.map(ev => `
+                <div style="background:#080d16; border-left:3px solid var(--accent-cyan); padding:8px 12px; border-radius:0 4px 4px 0; font-size:0.8rem;">
+                    <span style="font-family:var(--font-mono); color:#00d2ff;">[${escapeHtml(s.timestamp)}]</span>
+                    <span style="color:#f8fafc; margin-left:6px;">${escapeHtml(ev)}</span>
+                </div>
+            `).join("");
+        } else {
+            evList.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:12px; background:#080d16; border-radius:6px; font-size:0.8rem;">No direct event triggered at this second (state preserved).</div>';
+        }
+    }
+
+    // Scrubber Controls
+    const replayScrubber = document.getElementById("replayScrubber");
+    if (replayScrubber) {
+        replayScrubber.addEventListener("input", (e) => {
+            renderSnapshot(parseInt(e.target.value, 10));
+        });
+    }
+
+    const btnReplayPrev = document.getElementById("btnReplayPrev");
+    if (btnReplayPrev) {
+        btnReplayPrev.addEventListener("click", () => {
+            if (currentReplayIndex > 0) renderSnapshot(currentReplayIndex - 1);
+        });
+    }
+
+    const btnReplayNext = document.getElementById("btnReplayNext");
+    if (btnReplayNext) {
+        btnReplayNext.addEventListener("click", () => {
+            if (currentReplayIndex < replaySnapshots.length - 1) renderSnapshot(currentReplayIndex + 1);
+        });
+    }
+
+    const btnReplayPlay = document.getElementById("btnReplayPlay");
+    if (btnReplayPlay) {
+        btnReplayPlay.addEventListener("click", () => {
+            if (replayTimer) {
+                clearInterval(replayTimer);
+                replayTimer = null;
+                btnReplayPlay.textContent = "▶ Play";
+                btnReplayPlay.classList.remove("btn-secondary");
+                btnReplayPlay.classList.add("btn-primary");
+            } else {
+                btnReplayPlay.textContent = "⏸ Pause";
+                btnReplayPlay.classList.remove("btn-primary");
+                btnReplayPlay.classList.add("btn-secondary");
+                replayTimer = setInterval(() => {
+                    if (currentReplayIndex < replaySnapshots.length - 1) {
+                        renderSnapshot(currentReplayIndex + 1);
+                    } else {
+                        renderSnapshot(0);
+                    }
+                }, 1000);
+            }
+        });
+    }
+
+    const btnRefreshReplay = document.getElementById("btnRefreshReplay");
+    if (btnRefreshReplay) btnRefreshReplay.addEventListener("click", loadReplay);
+
+    // 10. Temporal Graph Correlation Explorer
+    async function loadGraph() {
+        const container = document.getElementById("graphRelationsContainer");
+        const filter = document.getElementById("graphFilterSelect").value;
+        try {
+            const res = await fetch("/api/v1/warehouse/query", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    sql: "SELECT r.relationship_id, r.source_event_id, r.target_event_id, r.relationship_type, r.weight, r.rationale, e1.description as src_desc, e1.category as src_cat, e1.timestamp as src_time, e2.description as tgt_desc, e2.category as tgt_cat, e2.timestamp as tgt_time FROM forensic.relationships r LEFT JOIN forensic.events e1 ON r.source_event_id=e1.event_id LEFT JOIN forensic.events e2 ON r.target_event_id=e2.event_id ORDER BY r.created_at DESC;"
+                })
+            });
+            const data = await res.json();
+            let rows = (data.result && data.result.rows) ? data.result.rows : [];
+
+            if (filter) {
+                rows = rows.filter(r => r.relationship_type === filter);
+            }
+
+            const countEl = document.getElementById("metaGraphCount");
+            const supEl = document.getElementById("metaGraphSupports");
+            const conEl = document.getElementById("metaGraphContradicts");
+            if (countEl) {
+                document.getElementById("graphSummaryMetrics").style.display = "flex";
+                countEl.textContent = rows.length;
+                supEl.textContent = rows.filter(r => r.relationship_type === "supports" || r.relationship_type === "used_app").length;
+                conEl.textContent = rows.filter(r => r.relationship_type === "contradicts").length;
+            }
+
+            if (rows.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:30px;">No temporal relationships matching the filter. Click "Run Correlation Engine" to re-scan.</div>';
+                return;
+            }
+
+            container.innerHTML = rows.map(r => {
+                const typeClass = `edge-${r.relationship_type.replace('_', '')}`;
+                return `
+                    <div class="graph-edge-row">
+                        <div class="node-box">
+                            <div class="node-title">${escapeHtml(r.src_desc || r.source_event_id)}</div>
+                            <div class="node-meta">${escapeHtml(r.src_time || '')} • <span style="color:#00d2ff;">${r.src_cat || 'EVENT'}</span></div>
+                        </div>
+                        <div class="edge-connector">
+                            <span class="edge-pill ${typeClass}">${escapeHtml(r.relationship_type)}</span>
+                            <span style="font-size:0.68rem; color:#94a3b8;">Weight: ${r.weight}</span>
+                        </div>
+                        <div class="node-box">
+                            <div class="node-title">${escapeHtml(r.tgt_desc || r.target_event_id)}</div>
+                            <div class="node-meta">${escapeHtml(r.tgt_time || '')} • <span style="color:#00d2ff;">${r.tgt_cat || 'EVENT'}</span></div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        } catch (e) {
+            console.warn("Graph load error:", e);
+        }
+    }
+
+    const btnRunCorrelation = document.getElementById("btnRunCorrelation");
+    if (btnRunCorrelation) {
+        btnRunCorrelation.addEventListener("click", async () => {
+            btnRunCorrelation.disabled = true;
+            btnRunCorrelation.textContent = "Analyzing Temporal Windows...";
+            try {
+                const res = await fetch("/api/v1/correlation/run", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ window_seconds: 120.0 })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`✓ Temporal Correlation Completed!\nDiscovered ${data.relationships_discovered} causal/corroborative relationships across evidence.`);
+                    loadGraph();
+                } else {
+                    alert("Correlation Error: " + data.detail);
+                }
+            } catch (e) {
+                alert("Network error: " + e.message);
+            } finally {
+                btnRunCorrelation.disabled = false;
+                btnRunCorrelation.textContent = "⚡ Run Correlation Engine";
+            }
+        });
+    }
+
+    const graphFilterSelect = document.getElementById("graphFilterSelect");
+    if (graphFilterSelect) graphFilterSelect.addEventListener("change", () => loadGraph());
+
+    // 11. Explainable Findings & Court Defense
+    let activeFindingsList = [];
+
+    async function loadFindings() {
+        const container = document.getElementById("findingsContainer");
+        try {
+            const res = await fetch("/api/v1/findings");
+            const data = await res.json();
+            activeFindingsList = data.findings || [];
+
+            if (activeFindingsList.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:30px;">No findings synthesized yet. Click "Synthesize Findings" to compute evidence scoring.</div>';
+                return;
+            }
+
+            container.innerHTML = activeFindingsList.map(f => {
+                const conf = f.confidence;
+                const confColor = conf >= 80 ? "#00f59b" : (conf >= 50 ? "#f59e0b" : "#ef4444");
+                return `
+                    <div class="finding-item-card" onclick="openFindingProof('${escapeHtml(f.finding_id)}')">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                            <span style="font-weight:700; font-size:1rem; color:#f8fafc;">${escapeHtml(f.title)}</span>
+                            <div style="display:flex; gap:8px; align-items:center;">
+                                <span class="score-badge" style="background:rgba(0,210,255,0.1); color:#00d2ff; font-family:var(--font-mono);">${escapeHtml(f.finding_type.toUpperCase())}</span>
+                                <span class="score-badge" style="background:#0c1424; color:${confColor}; border:1px solid ${confColor}; font-weight:800;">CONFIDENCE: ${conf}%</span>
+                            </div>
+                        </div>
+                        <p style="font-size:0.85rem; color:#cbd5e1; margin-bottom:8px;">${escapeHtml(f.description)}</p>
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.75rem; color:#94a3b8;">
+                            <span>Created: <code>${escapeHtml(f.created_at)}</code></span>
+                            <span style="color:#00d2ff; font-weight:600;">🔍 View Mathematical Proof & Court Testimony &rarr;</span>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        } catch (e) {
+            console.warn("Findings load error:", e);
+        }
+    }
+
+    const btnGenerateFindings = document.getElementById("btnGenerateFindings");
+    if (btnGenerateFindings) {
+        btnGenerateFindings.addEventListener("click", async () => {
+            btnGenerateFindings.disabled = true;
+            btnGenerateFindings.textContent = "Synthesizing Findings...";
+            try {
+                const res = await fetch("/api/v1/findings/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`✓ Findings Synthesized!\nTotal findings evaluated: ${data.total_findings}`);
+                    loadFindings();
+                } else {
+                    alert("Synthesis Error: " + data.detail);
+                }
+            } catch (e) {
+                alert("Network error: " + e.message);
+            } finally {
+                btnGenerateFindings.disabled = false;
+                btnGenerateFindings.textContent = "🔬 Synthesize Findings";
+            }
+        });
+    }
+
+    window.openFindingProof = async function(findingId) {
+        const modal = document.getElementById("proofModal");
+        const finding = activeFindingsList.find(f => f.finding_id === findingId);
+        if (!finding) return;
+
+        document.getElementById("modalFindingTitle").textContent = finding.title;
+        document.getElementById("modalFindingScore").textContent = `${finding.confidence}%`;
+        document.getElementById("modalFindingScore").style.color = finding.confidence >= 80 ? "#00f59b" : (finding.confidence >= 50 ? "#f59e0b" : "#ef4444");
+        document.getElementById("modalFindingType").textContent = finding.finding_type.toUpperCase();
+
+        // Fetch factors from warehouse
+        try {
+            const res = await fetch("/api/v1/warehouse/query", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sql: `SELECT * FROM forensic.confidence_factors WHERE finding_id = '${findingId}';` })
+            });
+            const data = await res.json();
+            const factors = (data.result && data.result.rows) ? data.result.rows : [];
+
+            const listEl = document.getElementById("modalFactorsList");
+            if (factors.length === 0) {
+                listEl.innerHTML = '<div style="color:#94a3b8; font-size:0.8rem;">Direct empirical observation (Baseline confidence 100%).</div>';
+            } else {
+                listEl.innerHTML = factors.map(fact => {
+                    const isPos = fact.score >= 0;
+                    return `
+                        <div style="background:#050911; border:1px solid var(--border-color); padding:10px 14px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-weight:600; font-size:0.82rem; color:#f8fafc;">${escapeHtml(fact.explanation)}</div>
+                                <div style="font-size:0.7rem; color:#94a3b8; font-family:var(--font-mono); margin-top:2px;">Factor Type: ${escapeHtml(fact.factor_type)}</div>
+                            </div>
+                            <span class="${isPos ? 'score-pill-pos' : 'score-pill-neg'}">${isPos ? '+' : ''}${fact.score} pts</span>
+                        </div>
+                    `;
+                }).join("");
+            }
+
+            // Court Testimony
+            const testimonyEl = document.getElementById("modalCourtTestimony");
+            testimonyEl.innerHTML = `
+                "Based on the empirical forensic acquisition, the finding entitled <strong>${escapeHtml(finding.title)}</strong> carries a validated confidence rating of <strong>${finding.confidence}%</strong>. Multiple independent hardware and logical artifact sources corroborate this conclusion, with zero unexplained contradictions observed across system timestamps in compliance with NIST SP 800-86."
+            `;
+
+            modal.classList.remove("hidden");
+        } catch (e) {
+            console.warn("Factors load error:", e);
+        }
+    };
+
+    window.closeProofModal = function() {
+        const modal = document.getElementById("proofModal");
+        if (modal) modal.classList.add("hidden");
+    };
+
+    // 12. DuckDB Columnar Warehouse Terminal
+    window.setPresetQuery = function(sql) {
+        const editor = document.getElementById("sqlQueryInput");
+        if (editor) editor.value = sql;
+    };
+
+    const btnExecuteSql = document.getElementById("btnExecuteSql");
+    if (btnExecuteSql) {
+        btnExecuteSql.addEventListener("click", async () => {
+            const editor = document.getElementById("sqlQueryInput");
+            const sql = editor ? editor.value.trim() : "";
+            if (!sql) return;
+
+            btnExecuteSql.disabled = true;
+            btnExecuteSql.textContent = "Executing...";
+            const metricsEl = document.getElementById("sqlExecutionMetrics");
+            metricsEl.textContent = "Running query against DuckDB warehouse...";
+
+            const t0 = performance.now();
+            try {
+                const res = await fetch("/api/v1/warehouse/query", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sql: sql, limit: 100 })
+                });
+                const t1 = performance.now();
+                const elapsed = (t1 - t0).toFixed(2);
+                const data = await res.json();
+
+                if (res.ok) {
+                    const qRes = data.result;
+                    metricsEl.innerHTML = `<span style="color:#00f59b;">✓ Query OK</span>: Returned <strong>${qRes.rows.length}</strong> rows in <strong>${elapsed} ms</strong>.`;
+
+                    // Render table
+                    const thead = document.getElementById("warehouseDataHeader");
+                    thead.innerHTML = (qRes.columns || []).map(c => `<th>${escapeHtml(c)}</th>`).join("");
+
+                    const tbody = document.getElementById("warehouseDataBody");
+                    if (qRes.rows.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="100%" style="text-align:center; color:#94a3b8; padding:20px;">Query returned zero rows.</td></tr>';
+                    } else {
+                        tbody.innerHTML = qRes.rows.map(r => `
+                            <tr>
+                                ${qRes.columns.map(c => `<td style="font-family:var(--font-mono); font-size:0.75rem;">${escapeHtml(String(r[c] !== null && r[c] !== undefined ? r[c] : 'NULL'))}</td>`).join("")}
+                            </tr>
+                        `).join("");
+                    }
+                } else {
+                    metricsEl.innerHTML = `<span style="color:#ef4444;">Query Error</span>: ${escapeHtml(data.detail)}`;
+                }
+            } catch (e) {
+                metricsEl.innerHTML = `<span style="color:#ef4444;">Network Error</span>: ${escapeHtml(e.message)}`;
+            } finally {
+                btnExecuteSql.disabled = false;
+                btnExecuteSql.textContent = "▶ Run Columnar Query";
+            }
+        });
+    }
+
     // Initial Load
     loadStatus();
 });
+

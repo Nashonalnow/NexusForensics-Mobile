@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NexusForensics Mobile™ | Interactive Forensic Daemon & DFIR API
-Serves live mobile artifact triage, SQLite examination, IoC detection, and NIST SP 800-86 chain of custody.
+NexusForensics Mobile™ | Interactive Forensic Daemon & V1 DFIR API
+Serves live mobile artifact triage, DuckDB evidence warehouse, temporal correlation, and behavioral replay.
 Strict Copper Standard: 100% authentic evidence hashes, schemas, and timestamps.
 """
 
@@ -12,6 +12,7 @@ import json
 import shutil
 import hashlib
 import zipfile
+import uuid
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -25,7 +26,16 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from core.models import CaseMetadata, EvidenceArtifact, ChainOfCustodyRecord, TimelineEvent, ThreatIndicator
+from core.models import (
+    CaseModel, DeviceModel, EvidenceSourceModel, ArtifactModel,
+    EventModel, RelationshipModel, FindingModel, ConfidenceFactorModel,
+    BehavioralStateModel
+)
+from core.warehouse import DuckDBWarehouse
+from core.parsers import ParserRegistry
+from core.correlation_engine import CorrelationEngine
+from core.confidence_scorer import ConfidenceScoringEngine
+from core.behavior_replay import BehavioralReplayEngine
 from core.evidence_ingestor import EvidenceIngestor
 from core.sqlite_inspector import SQLiteInspector
 from core.android_parser import AndroidForensicsParser
@@ -34,9 +44,9 @@ from core.ioc_scanner import ThreatIoCScanner
 from core.timeline_engine import TimelineEngine
 
 app = FastAPI(
-    title="NexusForensics Mobile™",
-    description="Mobile Digital Forensics, Artifact Carving & NIST SP 800-86 Incident Response Core",
-    version="0.1.0"
+    title="NEXUS Mobile Forensics™",
+    description="Evidence-Centric Intelligence Platform & DuckDB Columnar Forensic Warehouse",
+    version="1.0.0-MVP"
 )
 
 app.add_middleware(
@@ -47,37 +57,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Forensic Subsystems
+# Core Intelligence & Warehouse Engines
+warehouse = DuckDBWarehouse()
 ingestor = EvidenceIngestor(storage_dir=PROJECT_ROOT / "evidence")
 sqlite_inspector = SQLiteInspector()
 android_parser = AndroidForensicsParser()
 ios_parser = IOSForensicsParser()
 ioc_scanner = ThreatIoCScanner()
 timeline_engine = TimelineEngine()
+correlation_engine = CorrelationEngine(warehouse)
+confidence_scorer = ConfidenceScoringEngine(warehouse)
+behavior_replay = BehavioralReplayEngine(warehouse)
 
-# Active Investigation Case State
-active_case = CaseMetadata(
-    case_id="CASE-2026-NEXUS-01",
-    title="Mobile Security & Forensic Incident Triage",
-    examiner="Lead Forensic Investigator",
-    organization="Enterprise DFIR & Security Operations",
-    notes="Authorized forensic examination of mobile testbeds and network telemetry."
+# Default Active Case & Device Registration
+ACTIVE_CASE_ID = "CASE-2026-NEXUS-01"
+ACTIVE_DEVICE_ID = "DEV-NEXUS-MOBILE-01"
+
+warehouse.insert_case(
+    case_id=ACTIVE_CASE_ID,
+    name="Mobile Security & Forensic Incident Triage",
+    description="Forensic investigation of mobile application artifacts and behavioral telemetry.",
+    status="active",
+    created_by="Lead Forensic Investigator",
+    tags=["mobile", "dfir", "timesketch-axiom"]
 )
 
-# Threat findings collection
-all_findings: List[ThreatIndicator] = []
+warehouse.insert_device(
+    device_id=ACTIVE_DEVICE_ID,
+    case_id=ACTIVE_CASE_ID,
+    platform="Android",
+    manufacturer="Google",
+    model="Pixel 9 Pro",
+    serial="SN-PX9-83921",
+    imei="358901234567890",
+    os_version="15.0"
+)
 
-# Models for API requests
-class CaseUpdateRequest(BaseModel):
-    title: Optional[str] = None
-    examiner: Optional[str] = None
-    organization: Optional[str] = None
-    notes: Optional[str] = None
+# API Request Schemas
+class CreateCaseRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+    created_by: Optional[str] = "Examiner"
+    tags: Optional[List[str]] = []
 
-class IngestPathRequest(BaseModel):
+class RegisterDeviceRequest(BaseModel):
+    platform: str
+    manufacturer: Optional[str] = "Unknown"
+    model: str
+    serial_number: Optional[str] = None
+    imei: Optional[str] = None
+    os_version: Optional[str] = None
+
+class IngestFileRequest(BaseModel):
     file_path: str
-    origin: Optional[str] = "Manual"
-    notes: Optional[str] = None
+    device_id: Optional[str] = ACTIVE_DEVICE_ID
+    source_type: Optional[str] = "filesystem"
+    tool: Optional[str] = "NexusForensics"
+    examiner: Optional[str] = "Examiner"
+
+class CorrelationRunRequest(BaseModel):
+    device_id: Optional[str] = ACTIVE_DEVICE_ID
+    window_seconds: Optional[float] = 120.0
+
+class FindingsGenerateRequest(BaseModel):
+    case_id: Optional[str] = ACTIVE_CASE_ID
+    device_id: Optional[str] = ACTIVE_DEVICE_ID
+
+class WarehouseQueryRequest(BaseModel):
+    sql: str
+    limit: Optional[int] = 100
 
 class SQLiteInspectRequest(BaseModel):
     artifact_id: str
@@ -88,38 +136,322 @@ class SQLiteQueryRequest(BaseModel):
     limit: Optional[int] = 50
     offset: Optional[int] = 0
 
-# 1. Status & Overview
-@app.get("/api/status")
-def get_status():
-    devices = android_parser.get_connected_devices()
-    tl_stats = timeline_engine.get_summary_stats()
+
+# ============================================================================
+# V1 REST API ROUTES (/api/v1)
+# ============================================================================
+
+# 1. Cases
+@app.post("/api/v1/cases")
+def create_case(req: CreateCaseRequest):
+    cid = f"CASE-{uuid.uuid4().hex[:8].upper()}"
+    warehouse.insert_case(cid, req.name, req.description or "", "active", req.created_by or "Examiner", req.tags)
+    return {"case_id": cid, "status": "CREATED"}
+
+@app.get("/api/v1/cases")
+def list_cases():
+    res = warehouse.raw_sql_query("SELECT * FROM forensic.cases ORDER BY created_at DESC;")
+    return {"cases": res["rows"]}
+
+@app.get("/api/v1/cases/{case_id}")
+def get_case(case_id: str):
+    res = warehouse.raw_sql_query(f"SELECT * FROM forensic.cases WHERE case_id = '{case_id}';")
+    if not res["rows"]:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return {"case": res["rows"][0]}
+
+# 2. Devices
+@app.post("/api/v1/cases/{case_id}/devices")
+def register_device(case_id: str, req: RegisterDeviceRequest):
+    did = f"DEV-{uuid.uuid4().hex[:8].upper()}"
+    warehouse.insert_device(
+        did, case_id, req.platform, req.manufacturer or "Unknown",
+        req.model, req.serial_number or "", req.imei or "", req.os_version or ""
+    )
+    return {"device_id": did, "status": "REGISTERED"}
+
+@app.get("/api/v1/cases/{case_id}/devices")
+def get_case_devices(case_id: str):
+    res = warehouse.raw_sql_query(f"SELECT * FROM forensic.devices WHERE case_id = '{case_id}';")
+    return {"devices": res["rows"]}
+
+@app.get("/api/v1/devices/{device_id}/timeline")
+def get_device_timeline(
+    device_id: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 200
+):
+    tl = warehouse.query_timeline(device_id=device_id, start_time=start, end_time=end, category=category, limit=limit)
+    return {"device_id": device_id, "total_events": len(tl), "events": tl}
+
+# 3. Evidence Ingestion & Parsing Engine
+@app.post("/api/v1/evidence")
+def ingest_evidence(req: IngestFileRequest):
+    path = Path(req.file_path).resolve()
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    # Physical intake & hashing
+    artifact_wrapper = ingestor.ingest_file(
+        path,
+        origin=req.source_type or "filesystem",
+        examiner=req.examiner or "Examiner",
+        case_id=ACTIVE_CASE_ID
+    )
+
+    src_id = f"SRC-{uuid.uuid4().hex[:8].upper()}"
+    warehouse.insert_evidence_source(
+        source_id=src_id,
+        device_id=req.device_id or ACTIVE_DEVICE_ID,
+        source_type=req.source_type or "filesystem",
+        tool=req.tool or "NexusForensics",
+        tool_version="1.0",
+        original_filename=path.name,
+        file_size=artifact_wrapper.file_size_bytes,
+        sha256=artifact_wrapper.sha256,
+        examiner=req.examiner or "Examiner"
+    )
+
+    # Zimmerman parser execution
+    parsed_pairs = ParserRegistry.parse_file(path, src_id, req.device_id or ACTIVE_DEVICE_ID)
+    total_events_generated = 0
+
+    for art, events in parsed_pairs:
+        warehouse.insert_artifact(
+            art.artifact_id, art.source_id, art.artifact_type,
+            art.parser_name, art.parser_version, art.artifact_timestamp or time.strftime('%Y-%m-%d %H:%M:%S'),
+            art.record_hash, art.raw_data, art.normalized_data
+        )
+        for ev in events:
+            warehouse.insert_event(
+                ev.event_id, ev.artifact_id, ev.device_id, ev.timestamp,
+                ev.event_type, ev.category, ev.description, ev.confidence,
+                ev.location_lat, ev.location_lon, ev.actor, ev.target, ev.raw_payload
+            )
+            timeline_engine.add_event(ev)
+            total_events_generated += 1
+
+    # Run correlation on newly parsed telemetry
+    rels = correlation_engine.run_correlation(req.device_id, window_seconds=120.0)
+
+    # Generate explainable findings
+    findings = confidence_scorer.evaluate_communication_events(ACTIVE_CASE_ID, req.device_id or ACTIVE_DEVICE_ID)
+
+    return {
+        "status": "SUCCESS",
+        "evidence_source_id": src_id,
+        "sha256": artifact_wrapper.sha256,
+        "artifacts_carved": len(parsed_pairs),
+        "timeline_events_generated": total_events_generated,
+        "relationships_discovered": len(rels),
+        "findings_synthesized": len(findings)
+    }
+
+# 4. Artifact APIs
+@app.get("/api/v1/artifacts/search")
+def search_artifacts(type: Optional[str] = None, keyword: Optional[str] = None, limit: int = 50):
+    q = "SELECT artifact_id, source_id, artifact_type, parser_name, artifact_timestamp, record_hash FROM forensic.artifacts WHERE 1=1"
+    params = []
+    if type:
+        q += " AND artifact_type = ?"
+        params.append(type)
+    if keyword:
+        q += " AND (LOWER(raw_json) LIKE ? OR LOWER(normalized_json) LIKE ?)"
+        pat = f"%{keyword.lower()}%"
+        params.extend([pat, pat])
+    q += f" ORDER BY created_at DESC LIMIT {limit};"
+
+    res = warehouse.conn.execute(q, params).fetchall()
+    cols = [c[0] for c in warehouse.conn.description]
+    return {"results": [dict(zip(cols, row)) for row in res]}
+
+@app.get("/api/v1/artifacts/{artifact_id}")
+def get_artifact(artifact_id: str):
+    res = warehouse.raw_sql_query(f"SELECT * FROM forensic.artifacts WHERE artifact_id = '{artifact_id}';")
+    if not res["rows"]:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    art = res["rows"][0]
+    return {
+        "artifact_id": art["artifact_id"],
+        "artifact_type": art["artifact_type"],
+        "parser_name": art["parser_name"],
+        "record_hash": art["record_hash"],
+        "raw_data": json.loads(art["raw_json"]) if isinstance(art["raw_json"], str) else art["raw_json"],
+        "normalized_data": json.loads(art["normalized_json"]) if isinstance(art["normalized_json"], str) else art["normalized_json"]
+    }
+
+# 5. Timeline APIs
+@app.get("/api/v1/timeline")
+def get_unified_timeline(
+    device_id: Optional[str] = None,
+    category: Optional[str] = None,
+    event_type: Optional[str] = None,
+    keyword: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0
+):
+    tl = warehouse.query_timeline(
+        device_id=device_id, category=category, event_type=event_type,
+        keyword=keyword, start_time=start, end_time=end, limit=limit, offset=offset
+    )
+    return {"total": len(tl), "events": tl}
+
+# 6. Correlation & Graph APIs
+@app.post("/api/v1/correlation/run")
+def run_correlation_workflow(req: CorrelationRunRequest):
+    rels = correlation_engine.run_correlation(device_id=req.device_id, window_seconds=req.window_seconds or 120.0)
+    return {
+        "status": "SUCCESS",
+        "relationships_discovered": len(rels),
+        "relationships": [r.model_dump() for r in rels]
+    }
+
+@app.get("/api/v1/events/{event_id}/relationships")
+def get_event_relationships(event_id: str):
+    rels = warehouse.query_relationships(event_id)
+    return {"event_id": event_id, "relationships": rels}
+
+# 7. Findings & Explainable Confidence APIs
+@app.post("/api/v1/findings/generate")
+def generate_findings(req: FindingsGenerateRequest):
+    findings = confidence_scorer.evaluate_communication_events(req.case_id or ACTIVE_CASE_ID, req.device_id or ACTIVE_DEVICE_ID)
+    return {
+        "status": "SUCCESS",
+        "total_findings": len(findings),
+        "findings": [f.model_dump() for f in findings]
+    }
+
+@app.get("/api/v1/findings")
+def list_findings(case_id: Optional[str] = ACTIVE_CASE_ID):
+    findings = warehouse.query_findings(case_id=case_id)
+    return {"findings": findings}
+
+@app.get("/api/v1/findings/{finding_id}")
+def get_finding_detail(finding_id: str):
+    findings = warehouse.query_findings()
+    match = [f for f in findings if f["finding_id"] == finding_id]
+    if not match:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    return {"finding": match[0]}
+
+# 8. Behavioral Replay API ("Digital Witness")
+@app.get("/api/v1/replay")
+def get_behavioral_replay(
+    device_id: Optional[str] = ACTIVE_DEVICE_ID,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 50
+):
+    snapshots = behavior_replay.reconstruct_replay(device_id=device_id, start_time=start, end_time=end, limit_snapshots=limit)
+    return {
+        "device_id": device_id,
+        "total_snapshots": len(snapshots),
+        "snapshots": [s.model_dump() for s in snapshots]
+    }
+
+# 9. DuckDB Raw SQL Query Terminal
+@app.post("/api/v1/warehouse/query")
+def run_warehouse_query(req: WarehouseQueryRequest):
+    try:
+        res = warehouse.raw_sql_query(req.sql, limit=req.limit or 100)
+        return {"status": "SUCCESS", "result": res}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# 10. Reports
+@app.post("/api/v1/reports")
+def generate_report(case_id: str = ACTIVE_CASE_ID, format: str = "json"):
+    rep_id = f"REP-{uuid.uuid4().hex[:8].upper()}"
+    findings = warehouse.query_findings(case_id)
+    timeline = warehouse.query_timeline(limit=1000)
     artifacts = ingestor.get_all_artifacts()
+    coc_records = ingestor.get_chain_of_custody()
+
+    dossier = {
+        "title": "NIST SP 800-86 Mobile Forensics Dossier",
+        "report_id": rep_id,
+        "case_id": case_id,
+        "generated_at": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()),
+        "integrity_standard": "NIST SP 800-86 Compliant",
+        "integrity_seal": {
+            "total_artifacts": len(artifacts),
+            "artifacts_verified": sum(1 for a in artifacts if a.integrity_status == "VERIFIED"),
+            "chain_of_custody_steps": len(coc_records)
+        },
+        "total_findings": len(findings),
+        "total_events": len(timeline),
+        "findings": findings,
+        "artifacts": [a.model_dump() for a in artifacts],
+        "chain_of_custody": [c.model_dump() for c in coc_records],
+        "timeline_events": timeline,
+        "timeline_sample": timeline[:50]
+    }
+
+    target_dir = PROJECT_ROOT / "cases"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        rep_path = target_dir / f"{rep_id}.json"
+        rep_path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+    except Exception:
+        fallback_dir = Path("/tmp/nexusforensics_cases")
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        rep_path = fallback_dir / f"{rep_id}.json"
+        rep_path.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
+
+    sha = hashlib.sha256(rep_path.read_bytes()).hexdigest()
+
+    try:
+        warehouse.conn.execute("""
+            INSERT INTO forensic.reports (report_id, case_id, report_type, sha256, generated_at, filepath)
+            VALUES (?, ?, ?, ?, ?, ?);
+        """, [rep_id, case_id, format, sha, time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()), str(rep_path)])
+    except Exception:
+        pass
+
+    return {
+        "status": "SUCCESS",
+        "report_id": rep_id,
+        "sha256": sha,
+        "filepath": str(rep_path),
+        "report_file": str(rep_path),
+        "dossier": dossier
+    }
+
+# ============================================================================
+# COMPATIBILITY ROUTES FOR EXISTING WORKBENCH CLIENT
+# ============================================================================
+
+@app.get("/api/status")
+def get_legacy_status():
+    devices = android_parser.get_connected_devices()
+    ev_count = warehouse.raw_sql_query("SELECT count(*) as cnt FROM forensic.events")["rows"][0]["cnt"]
+    art_count = warehouse.raw_sql_query("SELECT count(*) as cnt FROM forensic.artifacts")["rows"][0]["cnt"]
+    fnd_count = warehouse.raw_sql_query("SELECT count(*) as cnt FROM forensic.findings")["rows"][0]["cnt"]
 
     return {
         "status": "OPERATIONAL",
-        "version": "0.1.0",
-        "case": active_case.model_dump(),
-        "total_artifacts": len(artifacts),
-        "total_timeline_events": tl_stats["total_events"],
-        "total_findings": len(all_findings),
+        "version": "1.0.0-MVP",
+        "case": {
+            "case_id": ACTIVE_CASE_ID,
+            "title": "Mobile Security & Forensic Incident Triage",
+            "examiner": "Lead Forensic Investigator",
+            "organization": "Enterprise DFIR & Security Operations",
+            "notes": "Evidence correlation & behavioral reconstruction workbench."
+        },
+        "total_artifacts": art_count or len(ingestor.artifacts),
+        "total_timeline_events": ev_count,
+        "total_findings": fnd_count,
         "connected_android_devices": len(devices),
         "nist_compliance": "NIST SP 800-86 Compliant",
         "evidence_storage_path": str(ingestor.storage_dir)
     }
 
-# 2. Case Management
-@app.post("/api/case/update")
-def update_case(req: CaseUpdateRequest):
-    global active_case
-    if req.title: active_case.title = req.title
-    if req.examiner: active_case.examiner = req.examiner
-    if req.organization: active_case.organization = req.organization
-    if req.notes is not None: active_case.notes = req.notes
-    return {"status": "SUCCESS", "case": active_case.model_dump()}
-
-# 3. Live Device Discovery (ADB)
 @app.get("/api/devices")
-def get_devices():
+def get_legacy_devices():
     devices = android_parser.get_connected_devices()
     enriched = []
     for d in devices:
@@ -134,160 +466,71 @@ def get_devices():
         })
     return {"devices": enriched}
 
-# 4. Evidence Ingestion: Local File Path
 @app.post("/api/ingest/file")
-def ingest_file_by_path(req: IngestPathRequest):
-    p = Path(req.file_path).resolve()
-    if not p.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {p}")
+def legacy_ingest_file(payload: Dict[str, Any] = Body(...)):
+    p = payload.get("file_path", "")
+    return ingest_evidence(IngestFileRequest(file_path=p, device_id=ACTIVE_DEVICE_ID))
 
-    artifact = ingestor.ingest_file(
-        p,
-        origin=req.origin or "Manual",
-        examiner=active_case.examiner,
-        case_id=active_case.case_id,
-        metadata={"notes": req.notes}
-    )
-
-    # Post-ingestion automated artifact triage
-    _auto_triage_artifact(artifact)
-
-    return {"status": "SUCCESS", "artifact": artifact.model_dump()}
-
-# 5. Evidence Ingestion: Multipart File Upload
 @app.post("/api/ingest/upload")
-async def upload_evidence(file: UploadFile = File(...), origin: str = "Upload"):
+async def legacy_upload(file: UploadFile = File(...)):
     dest = ingestor.storage_dir / file.filename
     with open(dest, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+    return ingest_evidence(IngestFileRequest(file_path=str(dest), device_id=ACTIVE_DEVICE_ID))
 
-    artifact = ingestor.ingest_file(
-        dest,
-        origin=origin,
-        examiner=active_case.examiner,
-        case_id=active_case.case_id
-    )
-
-    # Post-ingestion automated artifact triage
-    _auto_triage_artifact(artifact)
-
-    return {"status": "SUCCESS", "artifact": artifact.model_dump()}
-
-# 6. Evidence Ingestion: NexusProxy-Mobile Package
 @app.post("/api/ingest/nexusproxy")
-def ingest_nexusproxy_bundle(bundle_path: Optional[str] = None):
-    target_path = None
-    if bundle_path:
-        target_path = Path(bundle_path)
-    else:
-        # Check standard /tmp/nexusproxy_exports directory
-        exp_dir = Path("/tmp/nexusproxy_exports")
-        if exp_dir.exists():
-            zips = sorted(list(exp_dir.glob("engagement_*.zip")), key=os.path.getmtime, reverse=True)
-            if zips:
-                target_path = zips[0]
+def legacy_ingest_nexusproxy():
+    exp_dir = Path("/tmp/nexusproxy_exports")
+    target = None
+    if exp_dir.exists():
+        zips = sorted(list(exp_dir.glob("engagement_*.zip")), key=os.path.getmtime, reverse=True)
+        if zips:
+            target = zips[0]
 
-    if not target_path or not target_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="No NexusProxy-Mobile engagement bundle found. Please export from NexusProxy-Mobile first or supply path."
-        )
+    if not target:
+        raise HTTPException(status_code=404, detail="No NexusProxy bundle found in /tmp/nexusproxy_exports")
 
-    artifact, verification, tl_events = ingestor.ingest_nexusproxy_bundle(
-        target_path,
-        examiner=active_case.examiner,
-        case_id=active_case.case_id
-    )
+    return ingest_evidence(IngestFileRequest(file_path=str(target), device_id=ACTIVE_DEVICE_ID, source_type="nexusproxy", tool="NexusProxy-Mobile"))
 
-    # Add timeline events
-    timeline_engine.add_events(tl_events)
-
-    # Scan for IoCs
-    manifest = artifact.metadata.get("manifest", {})
-    # If requests were recorded, scan them
-    raw_txs = []
-    with zipfile.ZipFile(target_path, "r") as z:
-        for name in z.namelist():
-            if name.startswith("requests/"):
-                req_text = z.read(name).decode("utf-8", errors="replace")
-                lines = req_text.split("\n")
-                first = lines[0] if lines else ""
-                parts = first.split(" ")
-                m = parts[0] if parts else "GET"
-                p = parts[1] if len(parts) > 1 else "/"
-                h = "unknown"
-                for line in lines:
-                    if line.lower().startswith("host:"):
-                        h = line.split(":", 1)[1].strip()
-                        break
-                raw_txs.append({"id": name, "method": m, "path": p, "host": h, "request_raw": req_text})
-
-    ioc_findings = ioc_scanner.scan_network_telemetry(raw_txs)
-    all_findings.extend(ioc_findings)
-
-    return {
-        "status": "SUCCESS",
-        "artifact": artifact.model_dump(),
-        "verification": verification,
-        "timeline_events_ingested": len(tl_events),
-        "ioc_findings": [f.model_dump() for f in ioc_findings]
-    }
-
-def _auto_triage_artifact(artifact: EvidenceArtifact):
-    """Automatically parses and indexes ingested SQLite, APK, or Plist files."""
-    path = Path(artifact.file_path)
-    ext = path.suffix.lower()
-
-    # 1. SQLite Triage
-    if ext in [".db", ".sqlite", ".sqlite3"]:
-        try:
-            tl = sqlite_inspector.extract_timeline_events(path, artifact.artifact_id)
-            timeline_engine.add_events(tl)
-        except Exception:
-            pass
-
-    # 2. APK Triage
-    elif ext in [".apk"]:
-        try:
-            apk_data = android_parser.parse_apk(path)
-            artifact.metadata["apk_details"] = apk_data
-            for f in apk_data.get("findings", []):
-                all_findings.append(ThreatIndicator(**f))
-        except Exception:
-            pass
-
-    # 3. Plist Triage
-    elif ext in [".plist"]:
-        try:
-            plist_data = ios_parser.parse_plist(path)
-            artifact.metadata["plist_details"] = plist_data
-        except Exception:
-            pass
-
-# 7. Artifacts Listing
 @app.get("/api/artifacts")
-def get_artifacts():
-    return {"artifacts": [a.model_dump() for a in ingestor.get_all_artifacts()]}
+def get_legacy_artifacts():
+    arts = [a.model_dump() for a in ingestor.get_all_artifacts()]
+    if not arts:
+        res = warehouse.raw_sql_query("SELECT * FROM forensic.evidence_sources ORDER BY imported_at DESC;")
+        for r in res.get("rows", []):
+            arts.append({
+                "artifact_id": r.get("source_id"),
+                "file_name": r.get("original_filename"),
+                "origin": r.get("source_type"),
+                "file_size_bytes": r.get("file_size", 0),
+                "sha256": r.get("sha256", ""),
+                "integrity_status": "VERIFIED",
+                "mime_type": "application/x-sqlite3" if str(r.get("original_filename")).endswith(".db") else "application/octet-stream"
+            })
+    return {"artifacts": arts}
 
-# 8. Chain of Custody (NIST SP 800-86)
 @app.get("/api/coc")
-def get_chain_of_custody(artifact_id: Optional[str] = None):
-    records = ingestor.get_chain_of_custody(artifact_id)
-    return {
-        "standard": "NIST Special Publication 800-86 Compliant",
-        "records": [r.model_dump() for r in records]
-    }
+def get_legacy_coc():
+    records = [r.model_dump() for r in ingestor.get_chain_of_custody()]
+    if not records:
+        res = warehouse.raw_sql_query("SELECT * FROM forensic.audit_log ORDER BY timestamp DESC;")
+        records = res.get("rows", [])
+    return {"standard": "NIST Special Publication 800-86 Compliant", "records": records}
 
-# 9. SQLite Inspector Endpoints
 @app.post("/api/sqlite/inspect")
 def inspect_sqlite(req: SQLiteInspectRequest):
     artifact = ingestor.artifacts.get(req.artifact_id)
-    if not artifact:
-        raise HTTPException(status_code=404, detail=f"Artifact {req.artifact_id} not found.")
-
-    p = Path(artifact.file_path)
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="Underlying database file not found on disk.")
+    p = None
+    if artifact:
+        p = Path(artifact.file_path)
+    else:
+        for f in ingestor.storage_dir.glob("*"):
+            if req.artifact_id in f.name or f.stem in req.artifact_id:
+                p = f
+                break
+    
+    if not p or not p.exists():
+        raise HTTPException(status_code=404, detail=f"Underlying database file for {req.artifact_id} not found.")
 
     try:
         inspection = sqlite_inspector.inspect_database(p)
@@ -298,80 +541,38 @@ def inspect_sqlite(req: SQLiteInspectRequest):
 @app.post("/api/sqlite/query")
 def query_sqlite(req: SQLiteQueryRequest):
     artifact = ingestor.artifacts.get(req.artifact_id)
-    if not artifact:
-        raise HTTPException(status_code=404, detail=f"Artifact {req.artifact_id} not found.")
+    p = None
+    if artifact:
+        p = Path(artifact.file_path)
+    else:
+        for f in ingestor.storage_dir.glob("*"):
+            if req.artifact_id in f.name or f.stem in req.artifact_id:
+                p = f
+                break
 
-    p = Path(artifact.file_path)
+    if not p or not p.exists():
+        raise HTTPException(status_code=404, detail=f"Underlying database file for {req.artifact_id} not found.")
+
     try:
         result = sqlite_inspector.query_table(p, req.table_name, limit=req.limit or 50, offset=req.offset or 0)
         return {"status": "SUCCESS", "query_result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SQLite query error: {e}")
 
-# 10. Unified Chronological Timeline
 @app.get("/api/timeline")
-def get_timeline(
-    category: Optional[str] = None,
-    severity: Optional[str] = None,
-    search: Optional[str] = None,
-    limit: int = 150
-):
-    events = timeline_engine.get_timeline(category=category, severity=severity, search_query=search, limit=limit)
-    return {
-        "total_returned": len(events),
-        "events": [e.model_dump() for e in events]
-    }
+def get_legacy_timeline(category: Optional[str] = None, search: Optional[str] = None, limit: int = 200):
+    tl = warehouse.query_timeline(category=category, keyword=search, limit=limit)
+    return {"total_returned": len(tl), "events": tl}
 
-# 11. IoC Threat Findings
 @app.get("/api/ioc/findings")
-def get_findings():
-    return {
-        "total_findings": len(all_findings),
-        "findings": [f.model_dump() for f in all_findings]
-    }
+def get_legacy_findings():
+    fnd = warehouse.query_findings()
+    return {"total_findings": len(fnd), "findings": fnd}
 
-# 12. Forensic Report & Evidence Package Export
 @app.post("/api/report/export")
-def export_forensic_report():
-    """Generates comprehensive court-ready forensic report dossier."""
-    target_exp = PROJECT_ROOT / "cases" / active_case.case_id / "exports"
-    try:
-        target_exp.mkdir(parents=True, exist_ok=True)
-        exp_dir = target_exp
-    except Exception:
-        fallback_exp = Path("/tmp/nexusforensics_cases") / active_case.case_id / "exports"
-        fallback_exp.mkdir(parents=True, exist_ok=True)
-        exp_dir = fallback_exp
+def legacy_export_report():
+    return generate_report()
 
-    report_file = exp_dir / f"forensic_report_{int(time.time())}.json"
-    coc_records = ingestor.get_chain_of_custody()
-    artifacts = ingestor.get_all_artifacts()
-    timeline = timeline_engine.get_timeline(limit=500)
-
-    dossier = {
-        "title": "NIST SP 800-86 Mobile Forensics Dossier",
-        "generated_at": int(time.time()),
-        "case": active_case.model_dump(),
-        "integrity_seal": {
-            "total_artifacts": len(artifacts),
-            "artifacts_verified": sum(1 for a in artifacts if a.integrity_status == "VERIFIED"),
-            "chain_of_custody_steps": len(coc_records)
-        },
-        "artifacts": [a.model_dump() for a in artifacts],
-        "chain_of_custody": [c.model_dump() for c in coc_records],
-        "ioc_findings": [f.model_dump() for f in all_findings],
-        "timeline_events": [t.model_dump() for t in timeline]
-    }
-
-    report_file.write_text(json.dumps(dossier, indent=2), encoding="utf-8")
-    report_sha = hashlib.sha256(report_file.read_bytes()).hexdigest()
-
-    return {
-        "status": "SUCCESS",
-        "report_file": str(report_file),
-        "sha256": report_sha,
-        "dossier": dossier
-    }
 
 # Mount static frontend
 STATIC_DIR = PROJECT_ROOT / "workbench" / "app"

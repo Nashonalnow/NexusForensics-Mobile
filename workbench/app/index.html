@@ -36,13 +36,18 @@
     <!-- Navigation Bar -->
     <nav class="nav-bar">
         <button class="nav-btn active" data-tab="tab-overview">📊 Dashboard & Case</button>
-        <button class="nav-btn" data-tab="tab-evidence">📦 Evidence & Chain of Custody</button>
-        <button class="nav-btn" data-tab="tab-sqlite">🗄️ SQLite & WAL Inspector</button>
+        <button class="nav-btn" data-tab="tab-replay">🎬 Behavioral Replay</button>
+        <button class="nav-btn" data-tab="tab-graph">🕸️ Temporal Graph</button>
+        <button class="nav-btn" data-tab="tab-findings">⚖️ Court Defense & Proofs</button>
+        <button class="nav-btn" data-tab="tab-warehouse">🦆 DuckDB Columnar</button>
         <button class="nav-btn" data-tab="tab-timeline">⏱️ Chronological Timeline</button>
+        <button class="nav-btn" data-tab="tab-evidence">📦 Evidence & CoC</button>
+        <button class="nav-btn" data-tab="tab-sqlite">🗄️ SQLite & WAL</button>
         <button class="nav-btn" data-tab="tab-threats">🛡️ Threat & IoC Guard</button>
-        <button class="nav-btn" data-tab="tab-devices">📱 Live Testbeds (ADB)</button>
+        <button class="nav-btn" data-tab="tab-devices">📱 Live Testbeds</button>
         <button class="nav-btn" data-tab="tab-report">📑 Forensic Dossier</button>
     </nav>
+
 
     <!-- Main Workspace -->
     <main class="main-container">
@@ -118,6 +123,172 @@
                 </div>
             </div>
         </section>
+
+        <!-- TAB: Behavioral Replay Terminal ("Digital Witness") -->
+        <section id="tab-replay" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Behavioral Replay Terminal — Digital Witness Engine</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Reconstructs physical and logical device status across time to verify whether an action was human-driven or autonomous.</p>
+                    </div>
+                    <button class="btn-secondary" id="btnRefreshReplay">🔄 Reload Telemetry</button>
+                </div>
+
+                <!-- Interactive Timeline Scrubber -->
+                <div class="replay-scrubber-panel">
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.85rem;">
+                        <span style="font-weight:700; color:#00d2ff;">TIMESTAMP: <span id="replayTimestamp" style="font-family:var(--font-mono); color:#f8fafc;">--:--:-- UTC</span></span>
+                        <span id="replaySnapshotIndex" style="font-size:0.75rem; color:#94a3b8; font-family:var(--font-mono);">Snapshot 0 of 0</span>
+                    </div>
+                    <div class="scrubber-controls">
+                        <button class="btn-secondary" id="btnReplayPrev" style="padding:6px 12px;">⏮ Prev</button>
+                        <button class="btn-primary" id="btnReplayPlay" style="padding:6px 14px;">▶ Play</button>
+                        <button class="btn-secondary" id="btnReplayNext" style="padding:6px 12px;">Next ⏭</button>
+                        <input type="range" min="0" max="0" value="0" class="scrubber-slider" id="replayScrubber" />
+                    </div>
+                </div>
+
+                <!-- Reconstructed Telemetry Sensors Grid -->
+                <div class="device-telemetry-grid">
+                    <div class="sensor-card">
+                        <div class="sensor-label">Lock / Display Status</div>
+                        <div class="sensor-value" id="sensorLock"><span class="state-badge state-locked">LOCKED</span></div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">CoreDuet / Keyguard</div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Power & Battery</div>
+                        <div class="sensor-value" id="sensorBattery">-- %</div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;" id="sensorCharging">Unplugged</div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Network Connectivity</div>
+                        <div class="sensor-value" id="sensorNetwork"><span class="state-badge state-online">OFFLINE</span></div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;" id="sensorSsid">No Active SSID</div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Foreground App (InFocus)</div>
+                        <div class="sensor-value" id="sensorApp" style="font-size:0.95rem; word-break:break-all;">SpringBoard</div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">Active Window</div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Physical Motion State</div>
+                        <div class="sensor-value" id="sensorMotion">STATIONARY</div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">CoreMotion / Android Sensor</div>
+                    </div>
+                    <div class="sensor-card">
+                        <div class="sensor-label">Reconstruction Confidence</div>
+                        <div class="sensor-value" id="sensorConfidence" style="color:#00f59b;">-- %</div>
+                        <div style="font-size:0.7rem; color:#94a3b8; margin-top:4px;">Cross-Sensor Corroboration</div>
+                    </div>
+                </div>
+
+                <!-- Synchronous Corroborating Events -->
+                <div style="margin-top:20px;">
+                    <h4 style="font-size:0.85rem; color:#cbd5e1; margin-bottom:8px;">Synchronous Corroborating Forensic Events</h4>
+                    <div id="replayEventsList" style="display:flex; flex-direction:column; gap:6px;">
+                        <div style="text-align:center; color:#94a3b8; padding:16px; background:#080d16; border-radius:6px; font-size:0.8rem;">
+                            No corroborating events at this timestamp.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: Temporal Graph Correlation -->
+        <section id="tab-graph" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Temporal Graph Correlation Engine</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Identifies multi-step evidentiary chains: Precursors ➔ Foreground Focus ➔ Communication ➔ Contradictions.</p>
+                    </div>
+                    <div class="btn-row">
+                        <select id="graphFilterSelect" class="url-input" style="width:160px;">
+                            <option value="">All Relationships</option>
+                            <option value="preceded_by">Preceded By</option>
+                            <option value="used_app">Used App Focus</option>
+                            <option value="supports">Supports Action</option>
+                            <option value="contradicts">Contradicts State</option>
+                        </select>
+                        <button class="btn-primary" id="btnRunCorrelation">⚡ Run Correlation Engine</button>
+                    </div>
+                </div>
+
+                <div id="graphSummaryMetrics" style="display:none; margin-bottom:16px; background:#0c1424; padding:12px; border-radius:6px; font-size:0.8rem; display:flex; gap:20px;">
+                    <div><strong>Total Discovered Chains:</strong> <span id="metaGraphCount" style="color:#00d2ff;">0</span></div>
+                    <div><strong>Corroborating Links:</strong> <span id="metaGraphSupports" style="color:#00f59b;">0</span></div>
+                    <div><strong>Contradictions Discovered:</strong> <span id="metaGraphContradicts" style="color:#ef4444;">0</span></div>
+                </div>
+
+                <div class="graph-flow-container" id="graphRelationsContainer">
+                    <div style="text-align:center; color:#94a3b8; padding:30px;">
+                        Click "Run Correlation Engine" to compute temporal relationships across all ingested evidence.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: Explainable Findings & Court Defense -->
+        <section id="tab-findings" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Explainable Forensic Findings & Courtroom Defense</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Mathematical proof decomposition adhering to Daubert legal standards for digital evidence admissibility.</p>
+                    </div>
+                    <button class="btn-primary" id="btnGenerateFindings">🔬 Synthesize Findings</button>
+                </div>
+
+                <div id="findingsContainer">
+                    <div style="text-align:center; color:#94a3b8; padding:30px;">
+                        No findings synthesized yet. Click "Synthesize Findings" to evaluate ingested communications and telemetry.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: DuckDB Columnar Warehouse Terminal -->
+        <section id="tab-warehouse" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>DuckDB Columnar Evidence Warehouse Console</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">High-speed in-process columnar SQL queries across forensic schema (millions of rows in &lt;10ms).</p>
+                    </div>
+                    <button class="btn-primary" id="btnExecuteSql">▶ Run Columnar Query</button>
+                </div>
+
+                <!-- Presets Bar -->
+                <div class="query-preset-bar">
+                    <button class="preset-chip" onclick="setPresetQuery('SELECT * FROM forensic.unified_timeline ORDER BY timestamp DESC LIMIT 25;')">📋 Recent Timeline</button>
+                    <button class="preset-chip" onclick="setPresetQuery('SELECT event_type, count(*) as event_count FROM forensic.events GROUP BY event_type ORDER BY event_count DESC;')">📊 Event Frequencies</button>
+                    <button class="preset-chip" onclick="setPresetQuery('SELECT * FROM forensic.communication_events WHERE target IS NOT NULL;')">💬 Communication Logs</button>
+                    <button class="preset-chip" onclick="setPresetQuery('SELECT relationship_type, rationale, weight FROM forensic.relationships;')">🕸️ Discovered Correlations</button>
+                    <button class="preset-chip" onclick="setPresetQuery('SELECT table_name FROM information_schema.tables WHERE table_schema=\'forensic\';')">🗄️ Forensic Schema</button>
+                </div>
+
+                <!-- Editor -->
+                <textarea id="sqlQueryInput" class="sql-query-editor" spellcheck="false">SELECT event_id, timestamp, category, event_type, description, confidence FROM forensic.events ORDER BY timestamp DESC LIMIT 50;</textarea>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin: 12px 0 8px 0; font-size:0.75rem; color:#94a3b8;">
+                    <span id="sqlExecutionMetrics">Ready to execute query.</span>
+                </div>
+
+                <!-- Results Table -->
+                <div class="history-table-container" style="max-height:450px; overflow-y:auto;">
+                    <table class="history-table" id="warehouseDataTable">
+                        <thead>
+                            <tr id="warehouseDataHeader"><th>Result</th></tr>
+                        </thead>
+                        <tbody id="warehouseDataBody">
+                            <tr><td style="color:#94a3b8; text-align:center;">Execute query to view tabular columnar output.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
 
         <!-- TAB 2: Evidence & Chain of Custody -->
         <section id="tab-evidence" class="tab-pane">
@@ -321,6 +492,46 @@
 
     </main>
 
+    <!-- Explainable Proof & Courtroom Testimony Modal -->
+    <div id="proofModal" class="tactical-modal hidden">
+        <div class="modal-backdrop" onclick="closeProofModal()"></div>
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-size:1.2rem;">⚖️</span>
+                    <div>
+                        <h3 id="modalFindingTitle" style="font-size:1rem; color:#f8fafc;">Finding Proof Decomposition</h3>
+                        <div style="font-size:0.72rem; color:#94a3b8;">Daubert Standard &amp; Explainable Confidence Breakdown</div>
+                    </div>
+                </div>
+                <button class="modal-close-btn" onclick="closeProofModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; background:#080d16; padding:12px; border-radius:6px;">
+                    <div>
+                        <div style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase;">Overall Confidence Rating</div>
+                        <div id="modalFindingScore" style="font-size:1.4rem; font-weight:800; color:#00f59b; font-family:var(--font-mono);">98%</div>
+                    </div>
+                    <div id="modalFindingType" class="score-badge grade-secure">USER ACTIVITY</div>
+                </div>
+
+                <h4 style="font-size:0.85rem; color:#cbd5e1; margin-bottom:8px;">Decomposed Confidence Mathematical Proofs</h4>
+                <div id="modalFactorsList" style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+                    <!-- Factors injected here -->
+                </div>
+
+                <h4 style="font-size:0.85rem; color:#cbd5e1; margin-bottom:6px;">Court-Admissible Testimony Narrative</h4>
+                <div class="court-testimony-box" id="modalCourtTestimony">
+                    Generating evidentiary testimony...
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeProofModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
+
 </body>
 </html>

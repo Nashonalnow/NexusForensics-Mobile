@@ -325,6 +325,27 @@ CREATE TABLE IF NOT EXISTS forensic.audit_checkpoints (
     merkle_root CHAR(64) NOT NULL
 );
 
+-- 17. Graph Entities
+CREATE TABLE IF NOT EXISTS forensic.entities (
+    entity_id UUID PRIMARY KEY,
+    entity_type VARCHAR NOT NULL,
+    value VARCHAR NOT NULL,
+    confidence SMALLINT CHECK (confidence BETWEEN 0 AND 100),
+    source_artifact_id UUID,
+    metadata JSON,
+    FOREIGN KEY(source_artifact_id) REFERENCES forensic.artifacts(artifact_id)
+);
+
+-- 18. Event Entity Mentions
+CREATE TABLE IF NOT EXISTS forensic.event_entities (
+    event_id UUID NOT NULL,
+    entity_id UUID NOT NULL,
+    role VARCHAR DEFAULT 'participant',
+    PRIMARY KEY(event_id, entity_id),
+    FOREIGN KEY(event_id) REFERENCES forensic.events(event_id),
+    FOREIGN KEY(entity_id) REFERENCES forensic.entities(entity_id)
+);
+
 -- Composite Indexes
 CREATE INDEX IF NOT EXISTS idx_events_device_time ON forensic.events(device_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_events_type_time ON forensic.events(event_type, timestamp);
@@ -458,6 +479,13 @@ class DuckDBWarehouse:
         try:
             self.conn.execute("CREATE SEQUENCE IF NOT EXISTS forensic.audit_seq START 1;")
             self.conn.execute("ALTER TABLE forensic.audit_log ADD COLUMN IF NOT EXISTS sequence_id BIGINT DEFAULT nextval('forensic.audit_seq');")
+        except Exception:
+            pass
+
+    def close(self):
+        """Closes the DuckDB database connection cleanly."""
+        try:
+            self.conn.close()
         except Exception:
             pass
 
@@ -939,6 +967,132 @@ class DuckDBWarehouse:
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """, [rid, s_eid, t_eid, relationship_type, w, rationale, generated_by, now])
+
+    def insert_entity(
+        self,
+        entity_id: str,
+        entity_type: str,
+        value: str,
+        confidence: int = 100,
+        source_artifact_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> None:
+        eid = to_uuid(entity_id)
+        aid = to_uuid(source_artifact_id) if source_artifact_id else None
+        conf = max(0, min(100, confidence))
+        meta_json = canonical_json_str(metadata or {})
+        try:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO forensic.entities (
+                    entity_id, entity_type, value, confidence, source_artifact_id, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, ?);
+            """, [eid, str(entity_type), value, conf, aid, meta_json])
+        except Exception:
+            pass
+
+    def insert_event_entity(
+        self,
+        event_id: str,
+        entity_id: str,
+        role: str = "participant"
+    ) -> None:
+        ev_id = to_uuid(event_id)
+        ent_id = to_uuid(entity_id)
+        try:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO forensic.event_entities (
+                    event_id, entity_id, role
+                )
+                VALUES (?, ?, ?);
+            """, [ev_id, ent_id, role])
+        except Exception:
+            pass
+
+    def query_entities(self, entity_type: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        query = "SELECT * FROM forensic.entities"
+        params = []
+        if entity_type:
+            query += " WHERE entity_type = ?"
+            params.append(str(entity_type))
+        query += " ORDER BY confidence DESC LIMIT ?;"
+        params.append(limit)
+        res = self.conn.execute(query, params).fetchall()
+        cols = [c[0] for c in self.conn.description]
+        return [_format_row_dict(cols, r) for r in res]
+
+    def ingest_parse_output(self, output: Any, case_id: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, int]:
+        """Ingests a ParseOutput container into DuckDB with all artifacts, events, provenance, entities, and relationships."""
+        arts_count = 0
+        evs_count = 0
+        ents_count = 0
+        rels_count = 0
+
+        # Artifacts
+        for art in getattr(output, "artifacts", []):
+            self.insert_artifact(
+                artifact_id=art.artifact_id,
+                source_id=art.source_id,
+                parser_id=art.parser_id,
+                source_table=art.source_table,
+                source_record_id=art.source_record_id,
+                artifact_type=art.artifact_type,
+                artifact_timestamp=art.artifact_timestamp,
+                record_hash=art.record_hash,
+                raw_data=art.raw_data,
+                normalized_data=art.normalized_data
+            )
+            arts_count += 1
+
+        # Events and provenance
+        for ev in getattr(output, "events", []):
+            self.insert_event(
+                event_id=ev.event_id,
+                artifact_id=ev.artifact_id,
+                device_id=getattr(ev, "device_id", device_id or "DEV-UNKNOWN"),
+                event_type=ev.event_type,
+                category=ev.category,
+                timestamp=ev.timestamp,
+                confidence=ev.confidence,
+                description=ev.description,
+                latitude=ev.latitude,
+                longitude=ev.longitude,
+                actor=ev.actor,
+                target=ev.target
+            )
+            self.link_event_provenance(ev.event_id, ev.artifact_id, "primary", 1.0)
+            evs_count += 1
+
+        # Entities
+        for ent in getattr(output, "entities", []):
+            self.insert_entity(
+                entity_id=ent.entity_id,
+                entity_type=ent.entity_type,
+                value=ent.value,
+                confidence=ent.confidence,
+                source_artifact_id=ent.source_artifact_id,
+                metadata=getattr(ent, "metadata", {})
+            )
+            ents_count += 1
+
+        # Relationships
+        for rel in getattr(output, "relationships", []):
+            self.insert_relationship(
+                relationship_id=rel.relationship_id,
+                source_event_id=rel.source_event_id,
+                target_event_id=rel.target_event_id,
+                relationship_type=str(rel.relationship_type),
+                weight=rel.weight,
+                rationale=rel.rationale or ""
+            )
+            rels_count += 1
+
+        return {
+            "artifacts": arts_count,
+            "events": evs_count,
+            "entities": ents_count,
+            "relationships": rels_count
+        }
 
     def insert_finding(
         self,

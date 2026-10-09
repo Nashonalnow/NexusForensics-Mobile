@@ -38,6 +38,8 @@
     <nav class="nav-bar">
         <button class="nav-btn active" data-tab="tab-overview">📊 Dashboard & Case</button>
         <button class="nav-btn" data-tab="tab-integrity">🛡️ Forensic Assurance & Scorecard</button>
+        <button class="nav-btn" data-tab="tab-parsers">🧬 Zimmerman Parsers (18)</button>
+        <button class="nav-btn" data-tab="tab-entities">🌐 Extracted Entities</button>
         <button class="nav-btn" data-tab="tab-replay">🎬 Behavioral Replay</button>
         <button class="nav-btn" data-tab="tab-graph">🕸️ Temporal Graph</button>
         <button class="nav-btn" data-tab="tab-findings">⚖️ Court Defense & Proofs</button>
@@ -208,6 +210,99 @@
                         </thead>
                         <tbody id="assuranceControlsTableBody">
                             <tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">Loading evidentiary controls...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: Zimmerman Parser Registry (18 Parsers) -->
+        <section id="tab-parsers" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Zimmerman-Style Forensic Parser Engine (18 Certified Parsers)</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Single-purpose, deterministic parsers with first-class parser provenance, compile-time lineage, and SHA-256 reproducibility.</p>
+                    </div>
+                    <button class="btn-primary" id="btnRefreshParsers" onclick="loadParsers()">🔄 Refresh Parsers</button>
+                </div>
+
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; margin-bottom:16px;">
+                    <div style="background:#080d16; border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+                        <div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase;">Total Parsers Active</div>
+                        <div style="font-size:1.4rem; font-weight:800; color:#00f59b; font-family:var(--font-mono);" id="statTotalParsers">18</div>
+                    </div>
+                    <div style="background:#080d16; border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+                        <div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase;">Wave 1 Core Parsers</div>
+                        <div style="font-size:1.4rem; font-weight:800; color:#00d2ff; font-family:var(--font-mono);">6</div>
+                    </div>
+                    <div style="background:#080d16; border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+                        <div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase;">Wave 2 Advanced Parsers (MVP+1)</div>
+                        <div style="font-size:1.4rem; font-weight:800; color:#a855f7; font-family:var(--font-mono);">12</div>
+                    </div>
+                    <div style="background:#080d16; border:1px solid var(--border-color); border-radius:6px; padding:12px;">
+                        <div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase;">Parser Reproducibility</div>
+                        <div style="font-size:1.4rem; font-weight:800; color:#00f59b; font-family:var(--font-mono);">100% SHA-256</div>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="parsersTable">
+                        <thead>
+                            <tr>
+                                <th>Parser Name</th>
+                                <th>Version</th>
+                                <th>Artifact Target</th>
+                                <th>Supported Platforms</th>
+                                <th>Cryptographic SHA-256 Digest</th>
+                                <th>Certification Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="parsersTableBody">
+                            <tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading registered parsers...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB: Graph Entities & Intelligence -->
+        <section id="tab-entities" class="tab-pane">
+            <div class="tactical-card">
+                <div class="card-header">
+                    <div>
+                        <h3>Extracted Forensic Entities & Correlated Intelligence</h3>
+                        <p style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Phone numbers, GPS coordinates, SSIDs, MAC addresses, app bundle IDs, and accounts extracted from parsed evidence.</p>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <select id="entityTypeFilter" class="form-input" style="padding:4px 8px; font-size:0.8rem; width:180px;" onchange="loadEntities()">
+                            <option value="">All Entity Types</option>
+                            <option value="phone_number">Phone Numbers</option>
+                            <option value="gps_coordinate">GPS Coordinates</option>
+                            <option value="ssid">Wi-Fi SSIDs</option>
+                            <option value="mac_address">MAC Addresses</option>
+                            <option value="app_bundle_id">App Bundle IDs</option>
+                            <option value="cell_id">Cell Tower IDs</option>
+                            <option value="email_address">Email Addresses</option>
+                            <option value="contact">Contacts / Peers</option>
+                        </select>
+                        <button class="btn-primary" onclick="loadEntities()">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div style="overflow-x:auto;">
+                    <table class="data-table" id="entitiesTable">
+                        <thead>
+                            <tr>
+                                <th>Entity Type</th>
+                                <th>Extracted Value</th>
+                                <th>Confidence</th>
+                                <th>Source Artifact ID</th>
+                                <th>Entity ID</th>
+                            </tr>
+                        </thead>
+                        <tbody id="entitiesTableBody">
+                            <tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">Loading extracted entities...</td></tr>
                         </tbody>
                     </table>
                 </div>

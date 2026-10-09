@@ -352,6 +352,25 @@ def get_artifact(artifact_id: str):
         "normalized_data": json.loads(art["normalized_json"]) if isinstance(art.get("normalized_json"), str) else art.get("normalized_json")
     }
 
+# 4b. Parser Registry & Entity Extraction APIs
+@app.get("/api/v1/parsers")
+def get_registered_parsers():
+    """Lists all registered Zimmerman-style forensic parsers and their metadata."""
+    res = warehouse.raw_sql_query("SELECT * FROM forensic.parsers ORDER BY parser_name ASC;")
+    return {
+        "total_parsers": res["row_count"],
+        "parsers": res["rows"]
+    }
+
+@app.get("/api/v1/entities")
+def get_extracted_entities(type: Optional[str] = None, limit: int = 100):
+    """Lists extracted graph entities (phones, SSIDs, MACs, GPS coordinates, bundle IDs)."""
+    entities = warehouse.query_entities(entity_type=type, limit=limit)
+    return {
+        "total_entities": len(entities),
+        "entities": entities
+    }
+
 # 5. Timeline APIs
 @app.get("/api/v1/timeline")
 def get_unified_timeline(

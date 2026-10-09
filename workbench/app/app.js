@@ -34,6 +34,10 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (tabId === "tab-integrity") {
             loadAssuranceScorecard();
             loadFindingDropdownForLineage();
+        } else if (tabId === "tab-parsers") {
+            loadParsers();
+        } else if (tabId === "tab-entities") {
+            loadEntities();
         }
     };
 
@@ -1197,6 +1201,97 @@ Checkpoint anchored into forensic analytical warehouse.`);
 
     const btnWalk = document.getElementById("btnWalkLineage");
     if (btnWalk) btnWalk.addEventListener("click", walkSelectedFindingLineage);
+
+    // =========================================================================
+    // 11. Zimmerman Parser Engine & Graph Entities Viewers
+    // =========================================================================
+    window.loadParsers = async function() {
+        const tbody = document.getElementById("parsersTableBody");
+        if (!tbody) return;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">Loading registered parsers...</td></tr>`;
+
+        try {
+            const res = await fetch("/api/v1/parsers");
+            const data = await res.json();
+            const parsers = data.parsers || [];
+
+            const totalEl = document.getElementById("statTotalParsers");
+            if (totalEl) totalEl.textContent = parsers.length;
+
+            if (parsers.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#94a3b8;">No parsers registered.</td></tr>`;
+                return;
+            }
+
+            let html = "";
+            parsers.forEach(p => {
+                const sha = p.parser_sha256 || "UNKNOWN";
+                const shortSha = sha.length > 16 ? sha.substring(0, 16) + "..." : sha;
+                const isWave2 = [
+                    "android_usagestats", "wifi_association", "device_state_reconstruction",
+                    "google_maps_history", "ios_significant_locations", "whatsapp_messenger",
+                    "mobile_notes", "mobile_calendar", "bluetooth_devices", "cellular_tower_history",
+                    "media_intelligence_cache", "messaging_metadata_telegram_signal"
+                ].includes(p.parser_name);
+
+                const badge = isWave2
+                    ? `<span class="score-badge" style="background:rgba(168,85,247,0.2); color:#c084fc;">WAVE 2 (MVP+1)</span>`
+                    : `<span class="score-badge grade-secure">CORE WAVE 1</span>`;
+
+                html += `
+                    <tr>
+                        <td style="font-weight:700; color:#f8fafc; font-family:var(--font-mono); font-size:0.85rem;">${escapeHtml(p.parser_name)}</td>
+                        <td style="font-family:var(--font-mono); color:#00d2ff;">v${escapeHtml(p.parser_version)}</td>
+                        <td style="color:#cbd5e1;"><code>${escapeHtml(p.parser_name.split("_")[0])}</code></td>
+                        <td><span style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase;">Android / iOS</span></td>
+                        <td>
+                            <code style="font-family:var(--font-mono); font-size:0.72rem; color:#94a3b8;" title="${escapeHtml(sha)}">${escapeHtml(shortSha)}</code>
+                        </td>
+                        <td>${badge}</td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        } catch (err) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:#ef4444;">Failed to load parsers: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    };
+
+    window.loadEntities = async function() {
+        const tbody = document.getElementById("entitiesTableBody");
+        if (!tbody) return;
+        const filter = document.getElementById("entityTypeFilter")?.value || "";
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">Loading extracted entities...</td></tr>`;
+
+        try {
+            const url = filter ? `/api/v1/entities?type=${encodeURIComponent(filter)}` : "/api/v1/entities";
+            const res = await fetch(url);
+            const data = await res.json();
+            const entities = data.entities || [];
+
+            if (entities.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#94a3b8;">No entities found for current filter. Ingest evidence to extract graph intelligence.</td></tr>`;
+                return;
+            }
+
+            let html = "";
+            entities.forEach(ent => {
+                const confColor = ent.confidence >= 95 ? "#00f59b" : (ent.confidence >= 80 ? "#00d2ff" : "#fbbf24");
+                html += `
+                    <tr>
+                        <td><span class="score-badge grade-secure" style="font-size:0.7rem;">${escapeHtml(ent.entity_type.toUpperCase())}</span></td>
+                        <td style="font-weight:700; color:#f8fafc; font-family:var(--font-mono);">${escapeHtml(ent.value)}</td>
+                        <td style="color:${confColor}; font-weight:700; font-family:var(--font-mono);">${ent.confidence}%</td>
+                        <td><code style="font-size:0.75rem; color:#94a3b8;">${escapeHtml(ent.source_artifact_id || "Direct Intake")}</code></td>
+                        <td><code style="font-size:0.72rem; color:#64748b;">${escapeHtml(ent.entity_id ? ent.entity_id.substring(0, 13) + "..." : "")}</code></td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        } catch (err) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#ef4444;">Failed to load entities: ${escapeHtml(err.message)}</td></tr>`;
+        }
+    };
 
     // Initial Load
     loadStatus();
